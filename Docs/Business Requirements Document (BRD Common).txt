@@ -1,0 +1,253 @@
+Business Requirements Document (BRD)
+Algorithmic Trading Agent System
+Document Version: 1.0
+Date: January 24, 2026
+Project Owner: [Your Name/Team]
+Status: Draft
+
+1. Executive Summary
+1.1 Purpose
+This document defines the business requirements for developing a multi-layered algorithmic trading agent capable of executing liquidity-based trading strategies across multiple asset classes (Forex, Indices, Commodities) with institutional-grade risk management.
+
+1.2 Business Objectives
+Primary Goal: Achieve consistent profitability through automated trading with risk-adjusted returns (Sharpe Ratio > 1.5)
+Capital Protection: Limit maximum drawdown to < 10% through automated risk controls
+Scalability: Support transition from demo trading → small capital → prop firm challenges
+Operational Excellence: Maintain 99.5% uptime with zero manual intervention during market hours
+1.3 Success Metrics
+Performance: Win rate ≥ 45% with minimum 1:2 Risk-Reward ratio
+Risk: Maximum daily loss cap enforced at 2% of capital
+Reliability: Zero missed trades due to system failures
+Speed: Order execution latency < 100ms from signal generation
+2. Business Context
+2.1 Problem Statement
+Current retail trading bots suffer from:
+
+Inadequate risk management leading to account blowouts
+Poor engineering (synchronous blocking, session failures, state loss)
+Over-optimization for backtests without live market validation
+Lack of multi-timeframe analysis causing false signals
+2.2 Proposed Solution
+A professionally-engineered trading system with:
+
+5-Layer Architecture: Market Data, Analysis, Strategy, Execution, Monitoring
+Multi-Technology Stack: Python for analysis, Rust/Golang for execution, Angular/React Native for interfaces
+Institutional-Grade Controls: Kill switches, position sizing, session management, state persistence
+2.3 Target Users
+Primary: Individual algorithmic trader (project owner)
+Secondary: Potential prop firm evaluation (FTMO, MyForexFunds, etc.)
+Future: Scalable to team-based trading operations
+3. Functional Requirements
+3.1 Market Data Layer
+FR-MD-001: Multi-Broker Integration
+Priority: Critical
+Description: System must connect to MetaTrader 5 (MT5) for live market data
+Acceptance Criteria:
+Fetch OHLCV data for timeframes: M1, M5, M15, H1, H4, Daily
+Support assets: XAUUSD, EURUSD, USDJPY, Nifty 50, Bank Nifty
+Handle connection failures with auto-reconnect (max 3 retries, 5s intervals)
+FR-MD-002: Historical Data Access
+Priority: High
+Description: Retrieve minimum 1 year of historical data for backtesting
+Acceptance Criteria:
+Data completeness > 99.5% (handle missing candles gracefully)
+Store locally in SQLite with compression
+Update daily with new candles
+3.2 Analysis Layer
+FR-AL-001: Liquidity Detection
+Priority: Critical
+Description: Identify Equal Highs (EQH) and Equal Lows (EQL) as liquidity pools
+Acceptance Criteria:
+Calculate price tolerance: |High1 - High2| <= ATR * 0.2
+Minimum 2 touches required to qualify as liquidity zone
+Tag zones with strength score (2-touch = weak, 3+ touch = strong)
+FR-AL-002: Multi-Timeframe Alignment
+Priority: Critical
+Description: Confirm higher timeframe bias before lower timeframe entry
+Acceptance Criteria:
+H1 trend determines market bias (bullish/bearish/neutral)
+M1-M5 used only for precision entry after H1 confirmation
+Block trades if timeframes conflict (e.g., H1 bearish but M5 long signal)
+FR-AL-003: Fake Breakout Detection
+Priority: High
+Description: Identify institutional traps through wick-to-body ratio analysis
+Acceptance Criteria:
+Calculate ratio: wick_length / body_length
+Flag as fake breakout if ratio > 1.5 and volume < average volume
+Do NOT enter trades in direction of fake breakout for next 3 candles
+3.3 Strategy Layer
+FR-SL-001: Trade Signal Generation
+Priority: Critical
+Description: Generate BUY/SELL signals based on liquidity sweep + market structure
+Acceptance Criteria:
+Signal triggers only when: (1) Liquidity swept, (2) HTF aligned, (3) RR ≥ 1:2
+Include entry price, stop loss, and 2 take-profit levels
+Log signal generation timestamp with millisecond precision
+FR-SL-002: Position Sizing Algorithm
+Priority: Critical
+Description: Calculate lot size based on risk percentage and volatility
+Acceptance Criteria:
+Risk = 1% of capital per trade (configurable)
+Adjust for volatility: if India VIX > 25, reduce size by 50%
+Never exceed broker's maximum position limit
+Formula: Lot Size = (Account Balance * Risk%) / (Stop Loss Distance * Point Value)
+3.4 Execution Layer
+FR-EX-001: Order Placement
+Priority: Critical
+Description: Execute market/limit orders via broker API with ultra-low latency
+Acceptance Criteria:
+Latency: signal-to-order < 100ms
+Include stop loss and take profit in initial order (bracket order)
+Retry failed orders max 2 times with exponential backoff
+FR-EX-002: Order Modification
+Priority: High
+Description: Move stop loss to breakeven when price reaches 1:1 RR
+Acceptance Criteria:
+Monitor open positions every 1 second
+Modify SL to entry +/- spread when 50% of TP1 is hit
+Log all modifications with before/after price levels
+FR-EX-003: Session Management
+Priority: Critical
+Description: Maintain active broker session without manual intervention
+Acceptance Criteria:
+Proactively renew authentication token 5 minutes before expiry
+Detect "invalid session" errors and auto-relogin
+Alert admin if relogin fails after 3 attempts
+3.5 Monitoring & Risk Layer
+FR-MR-001: Kill Switch (Daily Loss Cap)
+Priority: Critical
+Description: Automatically halt all trading if daily loss exceeds threshold
+Acceptance Criteria:
+Default cap: 2% of starting daily capital (e.g., ₹2,000 on ₹1,00,000)
+Close all open positions immediately when cap hit
+Block new trades until next trading day
+Send emergency notification (email/SMS/Telegram)
+FR-MR-002: Risk-Reward Filter
+Priority: Critical
+Description: Block trades that do not meet minimum RR criteria
+Acceptance Criteria:
+Minimum RR = 1:2 (configurable)
+Calculate RR before order placement: (TP - Entry) / (Entry - SL)
+Log rejected trades with reason "RR below threshold"
+FR-MR-003: Safety Gatekeeper
+Priority: High
+Description: Verify margin availability before every trade
+Acceptance Criteria:
+Query broker API for available margin
+Require 10% buffer above required margin
+Reject trade if buffer not available
+FR-MR-004: Real-Time Dashboard
+Priority: Medium
+Description: Display system status, P&L, and open positions
+Acceptance Criteria:
+Update every 2 seconds (WebSocket-based)
+Show: Current Equity, Daily P&L, Open Positions, Win Rate, Sharpe Ratio
+Visual alerts for kill switch activation or system errors
+3.6 State Persistence
+FR-SP-001: Trade Database
+Priority: Critical
+Description: Persist all trade data to survive system crashes
+Acceptance Criteria:
+Store in SQLite: Entry time, Exit time, Symbol, Type, Size, Entry Price, Exit Price, P&L
+Commit transaction BEFORE order execution
+Recover open positions on system restart
+FR-SP-002: Configuration Management
+Priority: High
+Description: Store strategy parameters in version-controlled config files
+Acceptance Criteria:
+Use JSON/YAML for parameters (RR ratio, risk %, VIX threshold)
+Load config on startup with validation
+Log parameter changes with timestamp and user
+4. Non-Functional Requirements
+4.1 Performance
+NFR-PF-001: System processes 1000 candles/second for backtesting
+NFR-PF-002: Order execution latency < 100ms (95th percentile)
+NFR-PF-003: Dashboard loads in < 2 seconds
+4.2 Reliability
+NFR-RL-001: System uptime ≥ 99.5% during market hours
+NFR-RL-002: Auto-recovery from crashes within 10 seconds
+NFR-RL-003: Zero data loss for executed trades (ACID compliance)
+4.3 Scalability
+NFR-SC-001: Support 5 concurrent trading pairs without performance degradation
+NFR-SC-002: Handle 10,000 historical candles per asset for analysis
+NFR-SC-003: Architecture supports future migration to cloud (AWS/GCP)
+4.4 Security
+NFR-SE-001: API keys stored in encrypted environment variables (never hardcoded)
+NFR-SE-002: Broker credentials rotated every 90 days
+NFR-SE-003: All API communications use HTTPS/WSS
+4.5 Maintainability
+NFR-MT-001: Code coverage ≥ 80% for critical modules (Analysis, Risk)
+NFR-MT-002: All functions documented with input/output specifications
+NFR-MT-003: Logging at INFO level for trades, ERROR level for failures
+5. Technical Architecture
+5.1 Technology Stack
+Layer	Technology	Justification
+Analysis	Python 3.11+	Best ecosystem for pandas, numpy, TA-Lib
+Execution	Golang	Superior concurrency, low latency, easier than Rust
+Data Storage	SQLite + Redis	SQLite for persistence, Redis for real-time state
+Web UI	Angular 19	Enterprise-grade framework for complex dashboards
+Mobile UI	React Native	Cross-platform with native performance
+Broker API	MetaTrader 5	Stable, widely accepted by prop firms
+5.2 System Integration
+Python ↔ Golang: REST API + Redis Pub/Sub for signal passing
+Golang ↔ UI: WebSocket for real-time updates, REST for historical data
+Components: Asynchronous communication (no blocking time.sleep() calls)
+6. Project Phases
+Phase 1: Foundation (Months 0-2)
+Deliverables:
+Python environment setup with MT5 connection
+Fetch and store M1-H1 data for XAUUSD
+Basic liquidity detection algorithm (EQH/EQL)
+Success Criteria: Fetch 1 year of data with 99.5% completeness
+Phase 2: Strategy Development (Months 2-4)
+Deliverables:
+Multi-timeframe alignment logic
+Fake breakout detection
+Backtest engine with 1 year of data
+Success Criteria: Strategy shows positive expectancy on out-of-sample data
+Phase 3: Automation & Risk (Months 4-6)
+Deliverables:
+Golang execution layer with order placement
+Kill switch, RR filter, Safety Gatekeeper
+Session manager with auto-renewal
+Demo account testing for 30 days
+Success Criteria: Zero system failures, all risk controls trigger correctly
+Phase 4: Live Deployment (Months 6+)
+Deliverables:
+Streamlit/Angular dashboard
+Small live capital testing (₹10,000 - ₹25,000)
+Prop firm challenge preparation
+Success Criteria: 3 consecutive profitable months with max drawdown < 5%
+7. Risks & Mitigation
+Risk	Probability	Impact	Mitigation
+Overfitting to backtest data	High	Critical	Walk-forward analysis, out-of-sample testing
+Broker API downtime	Medium	High	Multi-broker support, fallback to manual mode
+Slippage in live vs demo	High	Medium	Test during volatile sessions, adjust RR expectations
+Session token expiry	Medium	Critical	Proactive renewal 5 min before expiry
+Kill switch fails to trigger	Low	Critical	Unit tests with 100% coverage, manual override
+8. Assumptions & Constraints
+Assumptions
+Broker API (MT5) remains stable and free to use
+User has ₹1,00,000+ capital for meaningful position sizing
+User dedicates 2-4 hours daily for monitoring during Phase 1-3
+Constraints
+No high-frequency trading (HFT) strategies due to retail latency limitations
+Initial deployment limited to 1-2 trading pairs to reduce complexity
+Cloud deployment postponed until consistent profitability on local machine
+9. Success Criteria
+The project is considered successful when:
+
+Backtest Performance: Sharpe Ratio > 1.5, Max Drawdown < 10% over 1 year
+Demo Account: 60-day profitable streak with all risk controls functioning
+Live Account: 3 consecutive profitable months on small capital
+Operational: Zero manual interventions required during market hours
+Prop Firm Ready: Meets FTMO/MyForexFunds challenge rules (10% profit, 5% drawdown limit)
+10. Approval & Sign-Off
+Role	Name	Signature	Date
+Project Owner	[Your Name]	_________	______
+Technical Lead	[If applicable]	_________	______
+Stakeholder	[If applicable]	_________	______
+Document Control
+
+Next Review Date: [30 days from approval]
+Change Log: All modifications require version increment and approval

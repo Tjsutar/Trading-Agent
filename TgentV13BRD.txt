@@ -1,0 +1,977 @@
+## 10. Success Criteria
+
+The project is considered successful when ALL of the following criteria are met:
+
+### 10.1 Backtest Performance Metrics
+- **Sharpe Ratio:** > 1.5 (risk-adjusted returns)
+- **Sortino Ratio:** > 2.0 (downside deviation focus)
+- **Maximum Drawdown:** < 10% over 1 year of backtested data
+- **Win Rate:** ≥ 45% (with minimum 1:2 RR, this yields profitability)
+- **Profit Factor:** > 1.5 (gross profit ÷ gross loss)
+- **Expectancy:** Positive on out-of-sample data (not just in-sample)
+- **Minimum Trades:** 100+ trades in backtest for statistical significance
+
+### 10.2 Demo Account Performance (60-Day Period)
+- **Consecutive Profitable Days:** 40+ out of 60 days (66%+ win days)
+- **Maximum Daily Drawdown:** Never exceed 5% on any single day
+- **All Risk Controls Functional:** Kill switch, RR filter, margin gatekeeper tested and verified
+- **Zero Manual Interventions:** System runs autonomously without user fixes
+- **Session Management:** Zero session expiry failures during 60-day period
+- **Order Execution Success Rate:** > 99% (< 1% failed orders due to technical issues)
+
+### 10.3 Live Account Performance (3-Month Period)
+- **Monthly Profitability:** 3 consecutive profitable months (even if small gains like 2-5%)
+- **Capital Preservation:** Account balance never drops below 90% of starting capital
+- **Consistency:** Standard deviation of daily returns < 3%
+- **Drawdown Control:** Maximum drawdown < 5% during live trading
+- **Strategy Adherence:** 100% compliance with configured RR minimums and risk percentages
+
+### 10.4 System Reliability & Performance
+- **Uptime:** ≥ 99.5% during market hours over 30-day rolling window
+- **Order Execution Latency:** 95th percentile < 100ms (signal to broker acknowledgment)
+- **Database Performance:** Dashboard queries < 100ms for 95% of requests
+- **Auto-Recovery:** System recovers from crashes within 10 seconds without data loss
+- **Zero Data Loss:** All executed trades logged to PostgreSQL with 100% accuracy
+- **Backup Success Rate:** 100% of scheduled backups complete successfully
+
+### 10.5 Operational Excellence
+- **Kill Switch Accuracy:** Triggers correctly 100% of the time when daily loss cap hit
+- **Trailing SL Functionality:** All trailing SL adjustments logged and executed correctly
+- **Session Continuity:** Zero trading interruptions due to broker token expiry
+- **Alert System:** Critical alerts (kill switch, margin call, errors) delivered within 10 seconds
+- **Code Quality:** ≥ 80% test coverage for Analysis and Risk Management modules
+
+### 10.6 Dashboard & UI Quality
+- **Page Load Time:** Dashboard loads in < 2 seconds on 4G connection
+- **Real-time Updates:** Position P&L updates within 2 seconds of price change
+- **Concurrent Users:** Angular dashboard supports 50+ users without# Business Requirements Document (BRD)
+## Algorithmic Trading Agent System
+
+**Document Version:** 1.1  
+**Date:** January 24, 2026  
+**Project Owner:** [Tushar Jagannath Sutar]  
+**Status:** Draft
+
+---
+
+## 1. Executive Summary
+
+### 1.1 Purpose
+This document defines the business requirements for developing a multi-layered algorithmic trading agent capable of executing liquidity-based trading strategies across multiple asset classes (Forex, Indices, Commodities) with institutional-grade risk management.
+
+### 1.2 Business Objectives
+- **Primary Goal:** Achieve consistent profitability through automated trading with risk-adjusted returns (Sharpe Ratio > 1.5)
+- **Capital Protection:** Limit maximum drawdown to < 10% through automated risk controls
+- **Scalability:** Support transition from demo trading → small capital → prop firm challenges
+- **Operational Excellence:** Maintain 99.5% uptime with zero manual intervention during market hours
+
+### 1.3 Success Metrics
+- **Performance:** Win rate ≥ 45% with minimum 1:2 Risk-Reward ratio
+- **Risk:** Maximum daily loss cap enforced at 2% of capital
+- **Reliability:** Zero missed trades due to system failures
+- **Speed:** Order execution latency < 100ms from signal generation
+
+---
+
+## 2. Business Context
+
+### 2.1 Problem Statement
+Current retail trading bots suffer from:
+- Inadequate risk management leading to account blowouts
+- Poor engineering (synchronous blocking, session failures, state loss)
+- Over-optimization for backtests without live market validation
+- Lack of multi-timeframe analysis causing false signals
+
+### 2.2 Proposed Solution
+A professionally-engineered trading system with:
+- **5-Layer Architecture:** Market Data, Analysis, Strategy, Execution, Monitoring
+- **Multi-Technology Stack:** Python for analysis, Golang for execution, Angular/React Native for interfaces
+- **Institutional-Grade Controls:** Kill switches, position sizing, session management, state persistence
+- **Enterprise Database:** PostgreSQL for ACID-compliant trade history and audit trails
+
+### 2.3 Target Users
+- **Primary:** Individual algorithmic trader (project owner)
+- **Secondary:** Potential prop firm evaluation (FTMO, MyForexFunds, etc.)
+- **Future:** Scalable to team-based trading operations with multi-user access
+
+---
+
+## 3. Functional Requirements
+
+### 3.1 Market Data Layer
+
+#### FR-MD-001: Multi-Broker Integration
+- **Priority:** Critical
+- **Description:** System must connect to MetaTrader 5 (MT5) for live market data
+- **Acceptance Criteria:**
+  - Fetch OHLCV data for timeframes: M1, M5, M15, H1, H4, Daily
+  - Support assets: XAUUSD, EURUSD, USDJPY, Nifty 50, Bank Nifty
+  - Handle connection failures with auto-reconnect (max 3 retries, 5s intervals)
+  - Store raw tick data in PostgreSQL with partitioning by date
+
+#### FR-MD-002: Historical Data Access
+- **Priority:** High
+- **Description:** Retrieve minimum 1 year of historical data for backtesting
+- **Acceptance Criteria:**
+  - Data completeness > 99.5% (handle missing candles gracefully)
+  - Store in PostgreSQL with BRIN indexes on timestamp columns for fast range queries
+  - Update daily with new candles via scheduled job
+  - Support data export to CSV/Parquet for external analysis
+
+#### FR-MD-003: Data Quality Monitoring
+- **Priority:** High
+- **Description:** Detect and alert on data anomalies (gaps, spikes, duplicates)
+- **Acceptance Criteria:**
+  - Identify candle gaps > 5 minutes during trading hours
+  - Flag price spikes > 3 standard deviations from moving average
+  - Remove duplicate timestamps before storage
+  - Log all anomalies to PostgreSQL audit table
+
+### 3.2 Analysis Layer
+
+#### FR-AL-001: Liquidity Detection
+- **Priority:** Critical
+- **Description:** Identify Equal Highs (EQH) and Equal Lows (EQL) as liquidity pools
+- **Acceptance Criteria:**
+  - Calculate price tolerance: `|High1 - High2| <= ATR * 0.2`
+  - Minimum 2 touches required to qualify as liquidity zone
+  - Tag zones with strength score (2-touch = weak, 3+ touch = strong)
+  - Store detected zones in PostgreSQL with validity period
+
+#### FR-AL-002: Multi-Timeframe Alignment
+- **Priority:** Critical
+- **Description:** Confirm higher timeframe bias before lower timeframe entry
+- **Acceptance Criteria:**
+  - H1 trend determines market bias (bullish/bearish/neutral)
+  - M1-M5 used only for precision entry after H1 confirmation
+  - Block trades if timeframes conflict (e.g., H1 bearish but M5 long signal)
+  - Cache timeframe analysis in Redis with 60-second TTL
+
+#### FR-AL-003: Fake Breakout Detection
+- **Priority:** High
+- **Description:** Identify institutional traps through wick-to-body ratio analysis
+- **Acceptance Criteria:**
+  - Calculate ratio: `wick_length / body_length`
+  - Flag as fake breakout if ratio > 1.5 and volume < average volume
+  - Do NOT enter trades in direction of fake breakout for next 3 candles
+  - Persist fake breakout events in PostgreSQL for pattern analysis
+
+#### FR-AL-004: Technical Indicator Library
+- **Priority:** Medium
+- **Description:** Calculate standard technical indicators for strategy enhancement
+- **Acceptance Criteria:**
+  - Support: RSI, MACD, Bollinger Bands, ATR, Moving Averages
+  - Use TA-Lib library for optimized calculations
+  - Cache computed indicators in Redis for reuse across strategies
+  - Store daily indicator snapshots in PostgreSQL for backtesting
+
+### 3.3 Strategy Layer
+
+#### FR-SL-001: Trade Signal Generation
+- **Priority:** Critical
+- **Description:** Generate BUY/SELL signals based on liquidity sweep + market structure
+- **Acceptance Criteria:**
+  - Signal triggers only when: (1) Liquidity swept, (2) HTF aligned, (3) RR ≥ 1:2
+  - Include entry price, stop loss, and 2 take-profit levels
+  - Log signal generation timestamp with millisecond precision to PostgreSQL
+  - Publish signal to Redis pub/sub channel for Golang execution layer
+
+#### FR-SL-002: Position Sizing Algorithm
+- **Priority:** Critical
+- **Description:** Calculate lot size based on risk percentage and volatility
+- **Acceptance Criteria:**
+  - Risk = 1% of capital per trade (configurable per strategy)
+  - Adjust for volatility: if India VIX > 25, reduce size by 50%
+  - Never exceed broker's maximum position limit
+  - **Formula:** `Lot Size = (Account Balance * Risk%) / (Stop Loss Distance * Point Value)`
+  - Store position sizing calculations in PostgreSQL for audit
+
+#### FR-SL-003: Strategy Configuration Management
+- **Priority:** High
+- **Description:** Support multiple strategies with independent parameters
+- **Acceptance Criteria:**
+  - Store strategy configs in PostgreSQL (name, parameters, status, version)
+  - Enable/disable strategies without system restart
+  - Version control for strategy parameters with rollback capability
+  - Support A/B testing by allocating capital percentage to each strategy
+
+### 3.4 Execution Layer
+
+#### FR-EX-001: Order Placement
+- **Priority:** Critical
+- **Description:** Execute market/limit orders via broker API with ultra-low latency
+- **Acceptance Criteria:**
+  - Latency: signal-to-order < 100ms
+  - Include stop loss and take profit in initial order (bracket order)
+  - Retry failed orders max 2 times with exponential backoff
+  - Write order acknowledgment to PostgreSQL immediately after broker confirmation
+  - Update order status in Redis for real-time UI sync
+
+#### FR-EX-002: Breakeven Stop Loss Management
+- **Priority:** High
+- **Description:** Move stop loss to breakeven when price reaches configured RR threshold
+- **Acceptance Criteria:**
+  - Monitor open positions every 1 second via Redis state
+  - Modify SL to entry +/- spread when configured trigger is hit (default: 50% of TP1)
+  - Log all modifications to PostgreSQL with before/after price levels
+  - Maintain modification history for compliance and audit
+  - Configuration per strategy: `{breakeven_enabled: true, breakeven_trigger_rr: 1.0}`
+
+#### FR-EX-005: Trailing Stop Loss Management
+- **Priority:** Medium
+- **Description:** Dynamically adjust stop loss to follow profitable price movement and maximize winning trades
+- **Acceptance Criteria:**
+  - Activate trailing SL after price moves X pips in profit (configurable per strategy)
+  - Trail at Y pips distance from current price (configurable, default: 15 pips for Forex, ₹10 for indices)
+  - Once activated, SL only moves in profitable direction (never widens or reverses)
+  - Track maximum favorable price reached in Redis: `position:{order_id}:max_favorable_price`
+  - Update SL via broker API when new trailing level calculated
+  - Store trailing SL state in PostgreSQL trade record: `trailing_sl_enabled`, `trailing_activation_price`, `max_profit_reached`
+  - Log all trailing SL adjustments with timestamp, old SL, new SL, and current price
+  - Support three trailing modes: (1) Fixed pips distance, (2) ATR-based distance, (3) Percentage-based
+  - Configuration per strategy: `{trailing_enabled: true, activation_pips: 20, trail_distance_pips: 15, trail_mode: "fixed"}`
+  - If both breakeven and trailing enabled: activate breakeven first, then switch to trailing after activation threshold
+  - Include trailing SL visualization in dashboard with price path and SL adjustments
+
+#### FR-EX-003: Session Management
+- **Priority:** Critical
+- **Description:** Maintain active broker session without manual intervention
+- **Acceptance Criteria:**
+  - Proactively renew authentication token 5 minutes before expiry
+  - Detect "invalid session" errors and auto-relogin
+  - Alert admin if relogin fails after 3 attempts
+  - Store session status and health checks in Redis
+  - Log all session events to PostgreSQL audit table
+
+#### FR-EX-004: Order Reconciliation
+- **Priority:** High
+- **Description:** Ensure local state matches broker account state
+- **Acceptance Criteria:**
+  - Query broker API every 5 minutes for open positions
+  - Compare with local PostgreSQL records
+  - Flag discrepancies (orphaned orders, missing fills)
+  - Auto-correct minor discrepancies, alert admin for major ones
+
+### 3.5 Monitoring & Risk Layer
+
+#### FR-MR-001: Kill Switch (Daily Loss Cap)
+- **Priority:** Critical
+- **Description:** Automatically halt all trading if daily loss exceeds threshold
+- **Acceptance Criteria:**
+  - Default cap: 2% of starting daily capital (e.g., ₹2,000 on ₹1,00,000)
+  - Close all open positions immediately when cap hit
+  - Block new trades until next trading day
+  - Send emergency notification (email/SMS/Telegram)
+  - Record kill switch activation in PostgreSQL with full context
+
+#### FR-MR-002: Risk-Reward Filter
+- **Priority:** Critical
+- **Description:** Block trades that do not meet minimum RR criteria
+- **Acceptance Criteria:**
+  - Minimum RR = 1:2 (configurable per strategy)
+  - Calculate RR before order placement: `(TP - Entry) / (Entry - SL)`
+  - Log rejected trades with reason "RR below threshold" to PostgreSQL
+  - Maintain daily rejection statistics in Redis for dashboard
+
+#### FR-MR-003: Safety Gatekeeper
+- **Priority:** High
+- **Description:** Verify margin availability before every trade
+- **Acceptance Criteria:**
+  - Query broker API for available margin
+  - Require 10% buffer above required margin
+  - Reject trade if buffer not available
+  - Log all margin checks to PostgreSQL
+  - Alert if margin utilization exceeds 80%
+
+#### FR-MR-004: Real-Time Dashboard
+- **Priority:** Medium
+- **Description:** Display system status, P&L, and open positions
+- **Acceptance Criteria:**
+  - Update every 2 seconds via WebSocket (data from Redis)
+  - Show: Current Equity, Daily P&L, Open Positions, Win Rate, Sharpe Ratio
+  - Visual alerts for kill switch activation or system errors
+  - Historical charts powered by PostgreSQL aggregations
+  - Support filtering by strategy, asset, and date range
+
+#### FR-MR-005: Performance Analytics
+- **Priority:** Medium
+- **Description:** Calculate and display key performance metrics
+- **Acceptance Criteria:**
+  - Compute: Sharpe Ratio, Sortino Ratio, Max Drawdown, Win/Loss Ratio
+  - Calculate metrics daily and store in PostgreSQL
+  - Compare current month vs previous months
+  - Generate equity curve from PostgreSQL trade history
+  - Export performance reports to PDF
+
+### 3.6 State Persistence & Data Management
+
+#### FR-SP-001: Trade Database Schema
+- **Priority:** Critical
+- **Description:** Persist all trade data in PostgreSQL with optimal schema design
+- **Acceptance Criteria:**
+  - Tables: `trades`, `orders`, `signals`, `strategies`, `accounts`, `audit_logs`
+  - Use partitioning on `trades` table by month for performance
+  - Include indexes on: `symbol`, `strategy_id`, `entry_time`, `exit_time`
+  - Enforce foreign key constraints for data integrity
+  - Store all timestamps in UTC with timezone support
+
+#### FR-SP-002: Redis Cache Strategy
+- **Priority:** High
+- **Description:** Use Redis for real-time state and performance optimization
+- **Acceptance Criteria:**
+  - Cache: Open positions, latest prices, indicator values, account balance
+  - Use Redis Streams for signal communication (Python → Golang)
+  - Set appropriate TTLs (positions: no expiry, prices: 60s, indicators: 300s)
+  - Implement cache invalidation on order fills
+  - Use Redis pub/sub for WebSocket broadcasting to UIs
+
+#### FR-SP-003: Configuration Management
+- **Priority:** High
+- **Description:** Store all system and strategy parameters in PostgreSQL
+- **Acceptance Criteria:**
+  - Table: `configurations` with key-value pairs and versioning
+  - Support parameter types: string, integer, float, boolean, JSON
+  - Load configurations on startup with validation
+  - Implement hot-reload for non-critical parameters
+  - Maintain configuration change history with user attribution
+
+#### FR-SP-004: Data Backup & Recovery
+- **Priority:** Critical
+- **Description:** Ensure zero data loss with automated backups
+- **Acceptance Criteria:**
+  - PostgreSQL automated backups every 6 hours
+  - Retain backups for 30 days
+  - Test recovery process monthly
+  - Backup to separate physical location (cloud storage)
+  - Document recovery procedures with RTO < 1 hour
+
+#### FR-SP-005: Database Performance Optimization
+- **Priority:** High
+- **Description:** Maintain database performance as data grows
+- **Acceptance Criteria:**
+  - Query response time < 100ms for dashboard queries
+  - Use materialized views for complex aggregations
+  - Archive trades older than 2 years to separate table
+  - Monitor slow query log and optimize indexes quarterly
+  - Set up connection pooling (min: 5, max: 20 connections)
+
+---
+
+## 4. Non-Functional Requirements
+
+### 4.1 Performance
+- **NFR-PF-001:** System processes 1000 candles/second for backtesting
+- **NFR-PF-002:** Order execution latency < 100ms (95th percentile)
+- **NFR-PF-003:** Dashboard loads in < 2 seconds
+- **NFR-PF-004:** PostgreSQL query response < 100ms for real-time data
+- **NFR-PF-005:** Redis operations < 10ms latency
+
+### 4.2 Reliability
+- **NFR-RL-001:** System uptime ≥ 99.5% during market hours
+- **NFR-RL-002:** Auto-recovery from crashes within 10 seconds
+- **NFR-RL-003:** Zero data loss for executed trades (ACID compliance via PostgreSQL)
+- **NFR-RL-004:** Graceful degradation if Redis fails (fallback to PostgreSQL)
+- **NFR-RL-005:** Broker API connection resilience with automatic retry
+
+### 4.3 Scalability
+- **NFR-SC-001:** Support 10 concurrent trading pairs without performance degradation
+- **NFR-SC-002:** Handle 10,000 historical candles per asset for analysis
+- **NFR-SC-003:** PostgreSQL schema supports 1M+ trades without performance loss
+- **NFR-SC-004:** Architecture supports horizontal scaling (multiple execution nodes)
+- **NFR-SC-005:** Support 50+ concurrent users on dashboard
+
+### 4.4 Security
+- **NFR-SE-001:** API keys stored in encrypted environment variables (never hardcoded)
+- **NFR-SE-002:** Broker credentials rotated every 90 days
+- **NFR-SE-003:** All API communications use HTTPS/WSS
+- **NFR-SE-004:** PostgreSQL connections use SSL/TLS encryption
+- **NFR-SE-005:** Database passwords hashed with bcrypt for user authentication
+- **NFR-SE-006:** Implement role-based access control (RBAC) for multi-user access
+
+### 4.5 Maintainability
+- **NFR-MT-001:** Code coverage ≥ 80% for critical modules (Analysis, Risk)
+- **NFR-MT-002:** All functions documented with input/output specifications
+- **NFR-MT-003:** Logging at INFO level for trades, ERROR level for failures
+- **NFR-MT-004:** PostgreSQL schema migrations versioned with Flyway/Liquibase
+- **NFR-MT-005:** API contracts documented with OpenAPI/Swagger
+
+### 4.6 Observability
+- **NFR-OB-001:** Centralized logging to PostgreSQL with structured format (JSON)
+- **NFR-OB-002:** Real-time metrics exported to Prometheus/Grafana
+- **NFR-OB-003:** Database performance monitoring with pg_stat_statements
+- **NFR-OB-004:** Alert on: kill switch, order failures, API errors, low margin
+- **NFR-OB-005:** Distributed tracing for request flow (Python → Golang → Broker)
+
+---
+
+## 5. Technical Architecture
+
+### 5.1 Technology Stack
+
+| Layer | Technology | Justification |
+|-------|-----------|---------------|
+| Analysis | Python 3.11+ | Best ecosystem for pandas, numpy, TA-Lib |
+| Execution | Golang 1.21+ | Superior concurrency, low latency, easier than Rust |
+| Data Storage | PostgreSQL 15+ + Redis 7+ | PostgreSQL for ACID persistence, Redis for real-time state |
+| Web UI | Angular 21+ | Latest enterprise-grade framework with modern features (signals, deferred views, built-in control flow) |
+| Mobile UI | React Native 0.73+ | Cross-platform with native performance |
+| Broker API | MetaTrader 5 | Stable, widely accepted by prop firms |
+| API Layer | GraphQL + REST (Hybrid) | GraphQL for dashboard/analytics, REST for order execution |
+| GraphQL Server | gqlgen 0.17+ | Most popular Go GraphQL library (MIT License, FREE) |
+| REST Framework | Gin 1.9+ | High-performance HTTP framework for Golang |
+| Message Queue | Redis Streams | Native to Redis, lightweight for signal passing |
+| Monitoring | Prometheus + Grafana | Industry standard for metrics and visualization |
+
+### 5.2 System Integration Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                     Client Layer                            │
+│  ┌──────────────┐              ┌──────────────┐            │
+│  │ Angular 21+  │              │ React Native │            │
+│  │  Web App     │              │  Mobile App  │            │
+│  └──────┬───────┘              └──────┬───────┘            │
+│         │                              │                    │
+│         └──────────────┬───────────────┘                    │
+│              GraphQL Queries/Mutations/Subscriptions        │
+│              REST API (order execution, health)             │
+└────────────────────────┼────────────────────────────────────┘
+                         │
+┌────────────────────────┼────────────────────────────────────┐
+│              Golang API Gateway Layer                       │
+│  ┌─────────────────────┴─────────────────────┐             │
+│  │  GraphQL Server (gqlgen) + REST (Gin)     │             │
+│  │  - Authentication & Authorization          │             │
+│  │  - Rate Limiting                           │             │
+│  │  - Request Validation                      │             │
+│  └─────────────────────┬─────────────────────┘             │
+└────────────────────────┼────────────────────────────────────┘
+                         │
+        ┌────────────────┼────────────────┐
+        │                │                │
+┌───────▼──────┐  ┌─────▼──────┐  ┌─────▼──────┐
+│   Analysis   │  │ Execution  │  │ Monitoring │
+│ Layer (Py)   │  │ Layer (Go) │  │ Layer (Go) │
+│              │  │            │  │            │
+│ - Indicators │  │ - Orders   │  │ - Metrics  │
+│ - Signals    │  │ - Sessions │  │ - Alerts   │
+│ - Backtest   │  │ - Risk Mgmt│  │ - Logs     │
+└───────┬──────┘  └─────┬──────┘  └─────┬──────┘
+        │                │                │
+        └────────────────┼────────────────┘
+                         │
+        ┌────────────────┴────────────────┐
+        │                                  │
+┌───────▼──────────┐          ┌──────────▼────────┐
+│  PostgreSQL 15   │          │    Redis 7        │
+│                  │          │                   │
+│ - Trades         │          │ - Live Positions  │
+│ - Orders         │          │ - Prices Cache    │
+│ - Signals        │          │ - Signal Queue    │
+│ - Configurations │          │ - Session State   │
+│ - Audit Logs     │          │ - Pub/Sub Channel │
+└──────────────────┘          └───────────────────┘
+                         │
+                 ┌───────▼───────┐
+                 │ MetaTrader 5  │
+                 │   Broker API  │
+                 └───────────────┘
+```
+
+### 5.3 Communication Protocols
+
+**Python Analysis ↔ Golang Execution:**
+- **Signal Passing:** Redis Streams (XADD/XREAD)
+- **Configuration Sync:** PostgreSQL read on startup, Redis pub/sub for hot reload
+- **Data Sharing:** PostgreSQL for historical, Redis for real-time
+
+**Golang API ↔ UI (Angular 21+ / React Native):**
+- **GraphQL Queries:** HTTP POST to `/graphql` endpoint
+  - Dashboard data fetching
+  - Complex analytics queries
+  - Nested data retrieval (trades with SL modifications)
+- **GraphQL Mutations:** HTTP POST to `/graphql` endpoint
+  - Strategy configuration updates
+  - Kill switch toggle
+  - Manual position closure
+- **GraphQL Subscriptions:** WebSocket to `/graphql` endpoint
+  - Real-time position updates
+  - Live P&L changes
+  - Alert notifications
+  - SL modification events
+- **REST API:** HTTP to `/api/v1/*` endpoints
+  - Order execution (POST /api/v1/orders)
+  - Health checks (GET /api/v1/health)
+  - System metrics (GET /api/v1/metrics)
+
+**All Components ↔ PostgreSQL:**
+- **Connection Pooling:** PgBouncer (transaction mode)
+- **ORM:** SQLAlchemy (Python), pgx (Golang)
+- **Migrations:** Alembic (Python) or golang-migrate
+
+**All Components ↔ Redis:**
+- **Client Libraries:** redis-py (Python), go-redis (Golang)
+- **Connection:** Single TCP connection per process with automatic retry
+
+### 5.4 Data Flow for Trade Execution
+
+1. **Market Data Ingestion (Continuous):**
+   - MT5 → Golang data fetcher → PostgreSQL (historical) + Redis (latest)
+
+2. **Signal Generation (Every candle close):**
+   - Python reads from Redis (latest prices) + PostgreSQL (historical)
+   - Computes liquidity zones, MTF alignment, fake breakouts
+   - Generates signal → Redis Stream (channel: `signals`)
+
+3. **Signal Validation & Execution:**
+   - Golang execution service reads from Redis Stream
+   - Validates: RR ratio, margin, kill switch status
+   - If valid → Place order via MT5 API
+   - Write to PostgreSQL: `orders`, `trades`
+   - Update Redis: `open_positions` hash
+
+4. **Position Monitoring:**
+   - Golang monitors Redis `open_positions` every 1 second
+   - Checks for: TP1 hit, breakeven trigger, trailing SL activation, trailing SL adjustment
+   - **Breakeven Logic:** If `breakeven_enabled` and profit ≥ `breakeven_trigger_rr`, move SL to entry ± spread
+   - **Trailing SL Logic:** 
+     - Track max favorable price in Redis: `position:{order_id}:max_favorable_price`
+     - If `trailing_enabled` and profit ≥ `activation_pips`, activate trailing
+     - Once active, continuously update SL based on: `new_sl = max_favorable_price - trail_distance`
+     - For BUY: SL only moves UP, for SELL: SL only moves DOWN
+   - Modifies orders via MT5, updates PostgreSQL (`trades` table + `sl_modifications` table) + Redis
+   - Publishes SL modification events to Redis pub/sub: `sl_modifications` channel
+
+5. **UI Updates:**
+   - Golang publishes events to Redis pub/sub channel: `ui_updates`
+   - Angular/React Native subscribes via WebSocket
+   - Dashboard renders live P&L, positions, equity curve
+
+---
+
+## 6. Database Schema Overview
+
+### 6.1 PostgreSQL Tables
+
+**Core Trading Tables:**
+
+```sql
+-- Trades table (partitioned by month)
+CREATE TABLE trades (
+    trade_id SERIAL PRIMARY KEY,
+    order_id VARCHAR(50) UNIQUE NOT NULL,
+    strategy_id INT REFERENCES strategies(id),
+    symbol VARCHAR(20) NOT NULL,
+    trade_type VARCHAR(4) CHECK (trade_type IN ('BUY', 'SELL')),
+    lot_size DECIMAL(10,2) NOT NULL,
+    entry_price DECIMAL(12,6) NOT NULL,
+    entry_time TIMESTAMPTZ NOT NULL,
+    initial_stop_loss DECIMAL(12,6),
+    current_stop_loss DECIMAL(12,6),
+    take_profit_1 DECIMAL(12,6),
+    take_profit_2 DECIMAL(12,6),
+    exit_price DECIMAL(12,6),
+    exit_time TIMESTAMPTZ,
+    pnl DECIMAL(12,2),
+    commission DECIMAL(8,2),
+    status VARCHAR(20) CHECK (status IN ('OPEN', 'CLOSED', 'CANCELLED')),
+    -- Breakeven management fields
+    breakeven_enabled BOOLEAN DEFAULT FALSE,
+    breakeven_activated BOOLEAN DEFAULT FALSE,
+    breakeven_activation_price DECIMAL(12,6),
+    -- Trailing stop loss fields
+    trailing_sl_enabled BOOLEAN DEFAULT FALSE,
+    trailing_sl_activated BOOLEAN DEFAULT FALSE,
+    trailing_activation_price DECIMAL(12,6),
+    trailing_distance_pips INT,
+    trailing_mode VARCHAR(20) CHECK (trailing_mode IN ('fixed', 'atr', 'percentage')),
+    max_favorable_price DECIMAL(12,6),
+    max_profit_reached DECIMAL(12,2),
+    sl_modification_count INT DEFAULT 0,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+) PARTITION BY RANGE (entry_time);
+
+-- Signals table
+CREATE TABLE signals (
+    signal_id SERIAL PRIMARY KEY,
+    strategy_id INT REFERENCES strategies(id),
+    symbol VARCHAR(20) NOT NULL,
+    timeframe VARCHAR(5) NOT NULL,
+    signal_type VARCHAR(4) CHECK (signal_type IN ('BUY', 'SELL')),
+    confidence DECIMAL(5,2), -- 0-100
+    liquidity_zone_id INT,
+    entry_price DECIMAL(12,6),
+    stop_loss DECIMAL(12,6),
+    take_profit DECIMAL(12,6),
+    risk_reward DECIMAL(5,2),
+    executed BOOLEAN DEFAULT FALSE,
+    rejection_reason TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Strategies configuration
+CREATE TABLE strategies (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(100) UNIQUE NOT NULL,
+    description TEXT,
+    parameters JSONB NOT NULL, -- See detailed schema below
+    is_active BOOLEAN DEFAULT TRUE,
+    capital_allocation_pct DECIMAL(5,2) DEFAULT 100.0,
+    version INT DEFAULT 1,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Strategy parameters JSONB schema example:
+/*
+{
+  "risk_pct": 1.0,
+  "rr_min": 2.0,
+  "vix_threshold": 25,
+  "vix_size_reduction": 0.5,
+  
+  "breakeven_enabled": true,
+  "breakeven_trigger_rr": 1.0,
+  
+  "trailing_sl_enabled": true,
+  "trailing_activation_pips": 20,
+  "trailing_distance_pips": 15,
+  "trailing_mode": "fixed",
+  "trailing_atr_multiplier": 1.5,
+  "trailing_percentage": 2.0,
+  
+  "partial_close_enabled": false,
+  "tp1_close_pct": 50,
+  "tp2_close_pct": 50,
+  
+  "timeframes": {
+    "bias": "H1",
+    "entry": "M5"
+  }
+}
+*/
+
+-- Market data (OHLCV)
+CREATE TABLE market_data (
+    id BIGSERIAL PRIMARY KEY,
+    symbol VARCHAR(20) NOT NULL,
+    timeframe VARCHAR(5) NOT NULL,
+    open_time TIMESTAMPTZ NOT NULL,
+    open DECIMAL(12,6) NOT NULL,
+    high DECIMAL(12,6) NOT NULL,
+    low DECIMAL(12,6) NOT NULL,
+    close DECIMAL(12,6) NOT NULL,
+    volume BIGINT,
+    UNIQUE(symbol, timeframe, open_time)
+) PARTITION BY RANGE (open_time);
+
+-- Stop loss modification history
+CREATE TABLE sl_modifications (
+    id BIGSERIAL PRIMARY KEY,
+    trade_id INT REFERENCES trades(trade_id),
+    order_id VARCHAR(50) NOT NULL,
+    modification_type VARCHAR(20) CHECK (modification_type IN ('BREAKEVEN', 'TRAILING', 'MANUAL')),
+    old_sl DECIMAL(12,6) NOT NULL,
+    new_sl DECIMAL(12,6) NOT NULL,
+    current_price DECIMAL(12,6) NOT NULL,
+    profit_at_modification DECIMAL(12,2),
+    trigger_reason TEXT,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX idx_sl_mods_trade ON sl_modifications(trade_id);
+CREATE INDEX idx_sl_mods_time ON sl_modifications(created_at DESC);
+    id BIGSERIAL PRIMARY KEY,
+    event_type VARCHAR(50) NOT NULL, -- ORDER_PLACED, KILL_SWITCH, etc.
+    severity VARCHAR(10) CHECK (severity IN ('INFO', 'WARN', 'ERROR')),
+    user_id INT,
+    details JSONB,
+    created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- System configurations
+CREATE TABLE configurations (
+    key VARCHAR(100) PRIMARY KEY,
+    value TEXT NOT NULL,
+    data_type VARCHAR(20) CHECK (data_type IN ('string', 'int', 'float', 'bool', 'json')),
+    description TEXT,
+    updated_by VARCHAR(100),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+```
+
+**Indexes:**
+```sql
+CREATE INDEX idx_trades_symbol_time ON trades(symbol, entry_time DESC);
+CREATE INDEX idx_trades_strategy ON trades(strategy_id);
+CREATE INDEX idx_signals_created ON signals(created_at DESC);
+CREATE INDEX idx_market_data_lookup ON market_data(symbol, timeframe, open_time DESC);
+```
+
+### 6.2 Redis Data Structures
+
+**Key Naming Convention:** `{namespace}:{entity}:{identifier}`
+
+```
+# Live positions (Hash)
+open_positions:{order_id} → {
+  symbol, entry_price, current_sl, tp1, tp2, lot_size, 
+  current_pnl, max_favorable_price, trailing_active, breakeven_active
+}
+
+# Latest prices (String with TTL 60s)
+price:{symbol}:latest → {bid, ask, timestamp}
+
+# Account state (Hash)
+account:balance → {equity, margin_used, margin_free, daily_pnl}
+
+# Kill switch status (String)
+risk:kill_switch → "ACTIVE" | "INACTIVE"
+
+# Signal queue (Stream)
+signals → [{signal_id, type, symbol, entry, sl, tp, rr, timestamp}]
+
+# Cache for indicators (Hash with TTL 300s)
+indicators:{symbol}:{timeframe} → {rsi, macd, bb_upper, bb_lower, atr}
+
+# Session status (String with TTL)
+session:mt5 → {status, token_expiry, last_heartbeat}
+
+# Trailing SL tracking (per position)
+position:{order_id}:max_favorable_price → DECIMAL value (highest for BUY, lowest for SELL)
+position:{order_id}:trailing_state → {activated: bool, last_update: timestamp}
+
+# Pub/Sub channels
+PUBLISH ui_updates → JSON events for WebSocket broadcast
+PUBLISH alerts → Critical alerts (kill switch, margin call, trailing SL activated)
+PUBLISH sl_modifications → Real-time SL change notifications
+```
+
+---
+
+## 7. Project Phases
+
+### Phase 1: Foundation (Months 0-2)
+**Deliverables:**
+- Python environment setup with MT5 connection
+- PostgreSQL database schema creation and migration scripts
+- Redis setup with persistence configuration
+- Fetch and store M1-H1 data for XAUUSD in PostgreSQL
+- Basic liquidity detection algorithm (EQH/EQL)
+- Unit tests for data ingestion pipeline
+
+**Success Criteria:**
+- Fetch 1 year of data with 99.5% completeness
+- PostgreSQL query performance < 100ms for dashboard queries
+- Zero data loss during ingestion (validated via reconciliation)
+
+### Phase 2: Strategy Development (Months 2-4)
+**Deliverables:**
+- Multi-timeframe alignment logic with Redis caching
+- Fake breakout detection algorithm
+- Technical indicators library integration (TA-Lib)
+- Backtest engine using PostgreSQL historical data
+- Signal generation module publishing to Redis Streams
+- Strategy configuration UI (basic Angular prototype)
+
+**Success Criteria:**
+- Strategy shows positive expectancy on out-of-sample data
+- Backtest engine processes 1000 candles/second
+- Signal latency < 500ms from candle close to Redis publish
+
+### Phase 3: Automation & Risk (Months 4-6)
+**Deliverables:**
+- Golang execution layer with MT5 order placement
+- Kill switch, RR filter, Safety Gatekeeper (reading from PostgreSQL configs)
+- Session manager with auto-renewal and Redis status tracking
+- Order reconciliation service (PostgreSQL ↔ Broker API)
+- Demo account testing for 30 days with full logging
+- Prometheus metrics export and Grafana dashboards
+
+**Success Criteria:**
+- Zero system failures during 30-day demo period
+- All risk controls trigger correctly (validated via synthetic tests)
+- Order execution latency < 100ms (95th percentile)
+- Database backups running successfully every 6 hours
+
+### Phase 4: Live Deployment (Months 6+)
+**Deliverables:**
+- Production-ready Angular dashboard with advanced analytics
+- React Native mobile app for monitoring and alerts
+- Small live capital testing (₹10,000 - ₹25,000)
+- Performance analytics module (Sharpe, Sortino, drawdown calculations)
+- Automated daily/weekly reports via email
+- Prop firm challenge preparation documentation
+
+**Success Criteria:**
+- 3 consecutive profitable months with max drawdown < 5%
+- Dashboard handles 50+ concurrent users without lag
+- Mobile app receives push notifications for critical events
+- System maintains 99.5% uptime on live capital
+
+---
+
+## 8. Risks & Mitigation
+
+| Risk | Probability | Impact | Mitigation |
+|------|-------------|--------|------------|
+| PostgreSQL performance degradation | Medium | High | Use partitioning, BRIN indexes, regular VACUUM; archive old data |
+| Redis data loss (if not persistent) | Medium | Critical | Enable AOF persistence, use Redis replication for HA |
+| Overfitting to backtest data | High | Critical | Walk-forward analysis, out-of-sample testing, 70/30 train/test split |
+| Broker API downtime | Medium | High | Implement exponential backoff retry, maintain local order state |
+| Slippage in live vs demo | High | Medium | Test during volatile sessions, adjust RR expectations, use limit orders |
+| Session token expiry | Medium | Critical | Proactive renewal 5 min before expiry, store expiry in Redis |
+| Kill switch fails to trigger | Low | Critical | Unit tests with 100% coverage, manual override button in UI |
+| Database connection pool exhaustion | Low | High | Monitor pool usage, implement circuit breaker, scale pool size |
+| Message loss in Redis Streams | Low | Medium | Use consumer groups with acknowledgments, set retention policy |
+
+---
+
+## 9. Assumptions & Constraints
+
+### 9.1 Assumptions
+Assumptions are conditions accepted as true for planning purposes. If these prove false, the project may require re-evaluation:
+
+**Business Assumptions:**
+- Broker API (MetaTrader 5) remains stable, free to use, and accessible for retail traders
+- User has minimum ₹1,00,000 capital for meaningful position sizing and risk management
+- User will dedicate 2-4 hours daily for system monitoring during Phase 1-3 (development)
+- Market conditions remain within historical volatility ranges (India VIX typically 15-30)
+- Prop firm rules and regulations remain consistent during development period
+
+**Technical Assumptions:**
+- PostgreSQL hosted on reliable infrastructure (cloud VPS or local machine with UPS backup)
+- Network latency to broker server < 50ms for order execution
+- Internet connection maintains 99%+ uptime during market hours
+- Python 3.11+, Golang 1.21+, PostgreSQL 15+, Redis 7+, Angular 21+ remain stable and supported
+- Open-source libraries (pandas, numpy, TA-Lib, gqlgen) continue free availability
+- GraphQL and REST API standards remain compatible with future versions
+
+**Resource Assumptions:**
+- User has sufficient technical expertise in Python basics (or willingness to learn)
+- Development environment available (laptop/desktop with minimum 8GB RAM, 4-core CPU)
+- Access to historical market data (minimum 1 year of OHLCV data for backtesting)
+- Availability of development tools (VS Code, Git, Docker) without licensing costs
+
+**Market & Regulatory Assumptions:**
+- No major regulatory changes restricting algorithmic trading in target markets
+- Broker continues to allow API-based automated trading
+- No introduction of transaction taxes that make strategy unprofitable
+- Market structure (liquidity pools, institutional behavior) remains predictable
+
+### 9.2 Constraints
+Constraints are limitations that cannot be changed and must be worked within:
+
+**Budget Constraints:**
+- **Development Budget:** ₹0 for software licenses (100% open-source stack)
+- **Infrastructure Budget:** Maximum ₹1,000/month for VPS hosting (Phase 4 only)
+- **Live Trading Capital:** Start with ₹10,000-₹25,000 in Phase 4 (small capital constraint)
+- **No External Funding:** Self-funded project, cannot hire developers or purchase premium services
+- **Tool Costs:** Limited to free tiers of monitoring tools (Grafana, Prometheus)
+
+**Timeline Constraints:**
+- **Fixed Deadline:** 6 months to reach Phase 4 (live deployment)
+- **Knowledge Cutoff:** Must learn Python, Golang, GraphQL, PostgreSQL within Phase 1-2
+- **Market Hours:** Development/testing limited to non-market hours (9:15 AM - 3:30 PM IST unavailable)
+- **Backtesting Data:** Historical data limited to what's freely available via MT5 (typically 1-2 years)
+
+**Technology Constraints:**
+- **No High-Frequency Trading:** Retail internet latency (20-100ms) prevents HFT strategies
+- **Broker API Limitations:** 
+  - MT5 API rate limits (typically 10 requests/second)
+  - No direct market access (DMA) - orders routed through broker
+  - Limited asset coverage (only symbols offered by broker)
+- **Database Size:** PostgreSQL limited by VPS disk space (typically 50-100GB on budget VPS)
+- **Compute Resources:** 
+  - Local development limited to personal laptop/desktop specifications
+  - Cannot afford dedicated GPU for ML-based strategies
+  - Backtesting speed constrained by single-machine processing
+
+**Skill & Resource Constraints:**
+- **Solo Developer:** No team available for code review, testing, or 24/7 monitoring
+- **Learning Curve:** Must learn new technologies (Golang, GraphQL, PostgreSQL) during development
+- **Time Availability:** Limited to evenings/weekends for development (2-4 hours/day)
+- **No DevOps Expertise:** Infrastructure setup and deployment must be simple (no Kubernetes initially)
+
+**Regulatory & Compliance Constraints:**
+- **Prop Firm Rules:** Must comply with evaluation rules (max 10% profit target, 5% daily drawdown limit)
+- **Tax Implications:** Must maintain complete trade logs for tax reporting (7-year retention in India)
+- **Data Privacy:** Cannot store other users' data (single-user system only in Phase 1-3)
+- **KYC Requirements:** Broker account subject to KYC verification and withdrawal limits
+
+**Market Constraints:**
+- **Trading Hours:** Limited to exchange hours (9:15 AM - 3:30 PM IST for NSE, 24/5 for Forex)
+- **Liquidity:** Strategy effectiveness depends on available market liquidity (low-liquidity assets excluded)
+- **Slippage:** Expected 2-5 pips slippage during volatile periods (cannot eliminate)
+- **Spread Costs:** Broker spreads reduce profitability (typically 1-3 pips for major pairs)
+- **Minimum Lot Sizes:** Broker-enforced minimum trade sizes may prevent micro-position sizing
+
+**Operational Constraints:**
+- **Uptime Dependency:** System requires constant internet and power (no mobile fallback in Phase 1-3)
+- **Single Point of Failure:** No redundancy for database, execution engine, or broker connection initially
+- **Manual Intervention Required:** Kill switch activation, system restarts, and error recovery need manual action
+- **No 24/7 Monitoring:** System runs unattended during sleep hours (risk of overnight gaps)
+
+**Scalability Constraints:**
+- **Maximum Concurrent Pairs:** Limited to 5-10 trading pairs due to compute/API rate limits
+- **User Limit:** Single-user system in Phase 1-3 (multi-user architecture not planned)
+- **Geographic Restriction:** Hosted in India (latency to non-Indian brokers may be high)
+- **Data Retention:** Archive old data after 2 years to manage database size
+
+**Integration Constraints:**
+- **Broker Lock-in:** Initially designed for MT5 only (other brokers require adapter development)
+- **No Third-party APIs:** Cannot afford paid data feeds (Bloomberg, Reuters) or premium indicators
+- **Limited Alert Channels:** Notifications limited to email/Telegram (no SMS due to cost)
+- **No Cloud AI:** Cannot use paid AI services (OpenAI, AWS SageMaker) for signal enhancement
+
+**Performance Constraints:**
+- **Order Execution Latency:** Target < 100ms, but subject to broker server response time
+- **Database Query Speed:** Limited by VPS specifications (cannot guarantee < 100ms for complex queries)
+- **Dashboard Concurrency:** Maximum 50 concurrent users (Angular + GraphQL capacity on budget VPS)
+- **Backtest Speed:** Limited to ~1000 candles/second due to single-threaded Python execution
+
+### 9.3 Dependencies
+Critical dependencies that the project relies on:
+
+**External Dependencies:**
+- MetaTrader 5 platform availability and API stability
+- Broker server uptime and order execution reliability
+- Internet service provider uptime (99%+ required)
+- PostgreSQL, Redis, Golang, Python ecosystem stability
+- Open-source library maintenance (pandas, TA-Lib, gqlgen, Apollo Client)
+
+**Internal Dependencies:**
+- Phase 2 depends on successful completion of Phase 1 (data pipeline)
+- Phase 3 depends on Phase 2 (proven strategy with positive expectancy)
+- Phase 4 depends on Phase 3 (30-day demo account success)
+- Live capital deployment depends on 3 consecutive profitable months
+
+**Risk Mitigation for Constraints:**
+- **Budget:** Use 100% free/open-source stack, delay cloud deployment until profitable
+- **Timeline:** Focus on single asset (XAUUSD) initially, expand later
+- **Skills:** Allocate Phase 1-2 for learning, use tutorials and documentation
+- **Single Point of Failure:** Implement automated backups, document recovery procedures
+- **Broker Lock-in:** Design modular architecture for future multi-broker support
+
+### 9.4 Out of Scope (Explicit Exclusions)
+To manage expectations and prevent scope creep:
+
+**Excluded Features:**
+- High-frequency trading (HFT) or latency arbitrage strategies
+- Machine learning / AI-based signal generation (Phase 1-4)
+- Multi-user accounts or team collaboration features
+- Options, futures, or derivatives trading (spot/cash only)
+- Copy trading or social trading features
+- Mobile app in Phase 1-3 (React Native deferred to Phase 4+)
+- Backtesting on tick-level data (minute-level only)
+- Real-time news sentiment analysis
+- Automated tax report generation
+- Integration with accounting software (Tally, QuickBooks)
+
+**Deferred to Future Phases:**
+- Cloud deployment (AWS/GCP) - Phase 4+ only
+- Multi-broker support - Phase 5+
+- Advanced order types (iceberg, TWAP, VWAP) - Phase 5+
+- Portfolio optimization across multiple strategies - Phase 5+
+- White-label solution for other traders - Not planned

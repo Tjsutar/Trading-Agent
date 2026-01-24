@@ -1,0 +1,52 @@
+# Project Report: Nifty Options Trading Bot
+
+## Overview
+The **Nifty Options Trading Bot** is a Python-based algorithmic trading application designed to trade Nifty 50 options on the Angel One platform. It features a modular architecture supporting multiple trading strategies, risk management, and simulation modes.
+
+## Technology Stack
+- **Language:** Python
+- **Broker Integration:** Angel One SmartAPI (`smartapi-python`)
+- **Data Processing:** Pandas
+- **Utilities:** `python-dotenv` (configuration), `requests` (HTTP)
+- **Authentication:** `pyotp` (TOTP generation)
+
+## Project Structure
+The project is well-structured with clear separation of concerns:
+
+- **`config/`**: Configuration management.
+  - [settings.py](file:///c:/Users/DDAPL/Downloads/nifty_trading_bot-main/nifty_trading_bot-main/config/settings.py): Loads environment variables and constants (e.g., Nifty lot size).
+- **`core/`**: Core trading logic context.
+  - [angel_connect.py](file:///c:/Users/DDAPL/Downloads/nifty_trading_bot-main/nifty_trading_bot-main/core/angel_connect.py): Handles broker authentication and connection.
+  - [decision_engine.py](file:///c:/Users/DDAPL/Downloads/nifty_trading_bot-main/nifty_trading_bot-main/core/decision_engine.py): Logic for automatic strategy selection.
+  - [data_fetcher.py](file:///c:/Users/DDAPL/Downloads/nifty_trading_bot-main/nifty_trading_bot-main/core/data_fetcher.py): Retrieves historical and real-time data.
+  - [mock_connect.py](file:///c:/Users/DDAPL/Downloads/nifty_trading_bot-main/nifty_trading_bot-main/core/mock_connect.py): Simulates broker interaction for testing.
+- **`strategies/`**: Pluggable trading strategies.
+  - [nifty_straddle.py](file:///c:/Users/DDAPL/Downloads/nifty_trading_bot-main/nifty_trading_bot-main/strategies/nifty_straddle.py): 9:20 Straddle (Short) implementation.
+  - [momentum_strategy.py](file:///c:/Users/DDAPL/Downloads/nifty_trading_bot-main/nifty_trading_bot-main/strategies/momentum_strategy.py): EMA crossover + RSI logic.
+  - [orb_strategy.py](file:///c:/Users/DDAPL/Downloads/nifty_trading_bot-main/nifty_trading_bot-main/strategies/orb_strategy.py): Open Range Breakout.
+  - [vwap_strategy.py](file:///c:/Users/DDAPL/Downloads/nifty_trading_bot-main/nifty_trading_bot-main/strategies/vwap_strategy.py), [ohl_strategy.py](file:///c:/Users/DDAPL/Downloads/nifty_trading_bot-main/nifty_trading_bot-main/strategies/ohl_strategy.py), [inside_bar_strategy.py](file:///c:/Users/DDAPL/Downloads/nifty_trading_bot-main/nifty_trading_bot-main/strategies/inside_bar_strategy.py): Additional strategies.
+- **`utils/`**: Helper functions.
+  - [token_lookup.py](file:///c:/Users/DDAPL/Downloads/nifty_trading_bot-main/nifty_trading_bot-main/utils/token_lookup.py): Maps symbols to tokens using the Scrip Master.
+  - [expiry_calculator.py](file:///c:/Users/DDAPL/Downloads/nifty_trading_bot-main/nifty_trading_bot-main/utils/expiry_calculator.py): Determines upcoming weekly expiry.
+  - [logger.py](file:///c:/Users/DDAPL/Downloads/nifty_trading_bot-main/nifty_trading_bot-main/utils/logger.py): Centralized logging.
+- **[main.py](file:///c:/Users/DDAPL/Downloads/nifty_trading_bot-main/nifty_trading_bot-main/main.py)**: Entry point handling CLI arguments and execution flow.
+
+## Key Features
+1.  **Multiple Modes**:
+    -   **Mock Mode (`--test`)**: Simulates trading without broker connection.
+    -   **Dry Run (`--dry-run`)**: Connects to broker for real data but skips order placement.
+    -   **Live Trading**: Executes real orders.
+2.  **Strategy Engine**: Supports diverse strategies (Trend, Mean Reversion, Time-based) and includes an "Auto" mode to select strategies dynamically.
+3.  **Safety**:
+    -   Environment variable-based credential management.
+    -   Mock mode for safe testing.
+    -   Logging system for audit trails.
+
+## Impressions & Recommendations
+-   **Code Quality**: The code is modular and readable. The separation of strategies into individual files allows for easy extensibility.
+-   **Testing**: The inclusion of a `MockSmartConnect` class is a strong positive for reliability.
+-   **Configuration**: Using `.env` is best practice.
+-   **Future Improvements**:
+    -   **Backtesting**: A dedicated backtesting engine using historical data could be valuable.
+    -   **Dockerization**: A `Dockerfile` could simplify deployment.
+    -   **Dashboard**: A simple web UI (e.g., Streamlit) to monitor bot status.

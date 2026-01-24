@@ -1,0 +1,64 @@
+# Business Logic Implementation Report
+
+## 1. Core Business Rules Mapping
+
+This section maps high-level business requirements to their specific code implementations.
+
+| Business Rule | Implementation Class | Method/Logic |
+| :--- | :--- | :--- |
+| **Market Hours Enforcment** | [SafetyGatekeeper](file:///c:/Users/DDAPL/Downloads/nifty_trading_bot-main/nifty_trading_bot-main/core/safety_checks.py#4-196) | [is_market_open()](file:///c:/Users/DDAPL/Downloads/nifty_trading_bot-main/nifty_trading_bot-main/core/safety_checks.py#10-22): Hard checks 09:15-15:29. |
+| **Capital Protection** | [SafetyGatekeeper](file:///c:/Users/DDAPL/Downloads/nifty_trading_bot-main/nifty_trading_bot-main/core/safety_checks.py#4-196) | [check_funds()](file:///c:/Users/DDAPL/Downloads/nifty_trading_bot-main/nifty_trading_bot-main/core/safety_checks.py#41-92): Queries `rmsLimit` API. Requires (Margin * 1.1) buffer. |
+| **Max Daily Loss** | [SafetyGatekeeper](file:///c:/Users/DDAPL/Downloads/nifty_trading_bot-main/nifty_trading_bot-main/core/safety_checks.py#4-196) | [check_max_daily_loss()](file:///c:/Users/DDAPL/Downloads/nifty_trading_bot-main/nifty_trading_bot-main/core/safety_checks.py#141-151): Halts if P&L < -₹2000. |
+| **VIX Volatility Sizing** | [SafetyGatekeeper](file:///c:/Users/DDAPL/Downloads/nifty_trading_bot-main/nifty_trading_bot-main/core/safety_checks.py#4-196) | [get_vix_adjustment()](file:///c:/Users/DDAPL/Downloads/nifty_trading_bot-main/nifty_trading_bot-main/core/safety_checks.py#165-196): If India VIX > 25, reduces Qty by 50%. |
+| **Blackout Period** | [SafetyGatekeeper](file:///c:/Users/DDAPL/Downloads/nifty_trading_bot-main/nifty_trading_bot-main/core/safety_checks.py#4-196) | [is_blackout_period()](file:///c:/Users/DDAPL/Downloads/nifty_trading_bot-main/nifty_trading_bot-main/core/safety_checks.py#152-164): Blocks new trades 11:30-13:00. |
+
+---
+
+## 2. Strategy Logic Implementation
+
+### A. 9:20 Straddle ([strategies/nifty_straddle.py](file:///c:/Users/DDAPL/Downloads/nifty_trading_bot-main/nifty_trading_bot-main/strategies/nifty_straddle.py))
+*   **Goal:** Capitalize on theta decay by selling both Call (CE) and Put (PE) options at the same strike.
+*   **ATM Selection:**
+    *   [get_atm_strike()](file:///c:/Users/DDAPL/Downloads/nifty_trading_bot-main/nifty_trading_bot-main/strategies/nifty_straddle.py#16-33): Fetches Nifty Spot -> `round(ltp / 50) * 50`.
+*   **Entry:**
+    *   Executes `SELL` orders for both legs.
+*   **Stop Loss (SL):**
+    *   Logic: **25% Premium SL**.
+    *   Code: Calculates `entry_price * 1.25`. Places `STOPLOSS_LIMIT` Buy orders.
+*   **Adjustment Rule:**
+    *   If one leg hits SL ([monitor_straddle](file:///c:/Users/DDAPL/Downloads/nifty_trading_bot-main/nifty_trading_bot-main/strategies/nifty_straddle.py#124-173) loop), the other leg's SL is moved to **Cost Price**.
+
+### B. Momentum ([strategies/momentum_strategy.py](file:///c:/Users/DDAPL/Downloads/nifty_trading_bot-main/nifty_trading_bot-main/strategies/momentum_strategy.py))
+*   **Goal:** Trend following based on EMA Crossover.
+*   **Signal Generation:**
+    *   [analyze_market_trend()](file:///c:/Users/DDAPL/Downloads/nifty_trading_bot-main/nifty_trading_bot-main/strategies/momentum_strategy.py#192-218): Calculates EMA(9) and EMA(21) on 5-min candles.
+    *   **Buy CE condition:** EMA9 > EMA21 **AND** RSI < 70 (Not Overbought).
+    *   **Buy PE condition:** EMA9 < EMA21 **AND** RSI > 30 (Not Oversold).
+*   **Exit:**
+    *   **Reversal:** If Trend flips (e.g., Bullish -> Bearish), exits CE immediately.
+    *   **Trailing Stop:** [check_trailing_stop()](file:///c:/Users/DDAPL/Downloads/nifty_trading_bot-main/nifty_trading_bot-main/strategies/momentum_strategy.py#45-97) implements a "Step-Ladder" logic (e.g., if profit +20pts, move SL up by 5pts).
+
+### C. Open Range Breakout ([strategies/orb_strategy.py](file:///c:/Users/DDAPL/Downloads/nifty_trading_bot-main/nifty_trading_bot-main/strategies/orb_strategy.py))
+*   **Goal:** Capture breakout from the initial market range.
+*   **Range Definition:**
+    *   [establish_opening_range()](file:///c:/Users/DDAPL/Downloads/nifty_trading_bot-main/nifty_trading_bot-main/strategies/orb_strategy.py#38-57): Currently checks LTP and simulates a +/- 20pt range (Implementation Note: Needs robust historical data fetch for true 15m High/Low).
+*   **Execution:**
+    *   [monitor_breakout()](file:///c:/Users/DDAPL/Downloads/nifty_trading_bot-main/nifty_trading_bot-main/strategies/orb_strategy.py#58-98): Polls LTP.
+    *   `LTP > High`: Buy CE.
+    *   `LTP < Low`: Buy PE.
+
+---
+
+## 3. Decision Engine Logic ([core/decision_engine.py](file:///c:/Users/DDAPL/Downloads/nifty_trading_bot-main/nifty_trading_bot-main/core/decision_engine.py))
+The "Brain" that selects which strategy to run.
+*   **Logic Flow:**
+    1.  **Check Capital:** If < ₹5k, Stop.
+    2.  **Time Check:**
+        *   09:15 - 09:20: Force **OHL Scalp**.
+    3.  **Capital Tiering:**
+        *   If Funds < ₹1.5L: Force **Buying Strategies** (Momentum).
+        *   If Funds > ₹1.5L: Prefer **Straddle** (Selling).
+
+## 4. Architect's Note on Logic Gaps
+*   **State Persistence:** [MomentumStrategy](file:///c:/Users/DDAPL/Downloads/nifty_trading_bot-main/nifty_trading_bot-main/strategies/momentum_strategy.py#14-342) saves state to `trade_state.json`, but [NiftyStrategy](file:///c:/Users/DDAPL/Downloads/nifty_trading_bot-main/nifty_trading_bot-main/strategies/nifty_straddle.py#6-295) (Straddle) does **not**. If the bot crashes during a Straddle trade, it loses track of open SL orders.
+*   **Synchronization:** The Straddle logic places SL orders *after* verifying the entry fill. This is good safety, but susceptible to "slippage" if the market moves fast between Entry Fill and SL Placement.
