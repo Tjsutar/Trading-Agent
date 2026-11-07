@@ -11,6 +11,7 @@ from strategies.momentum_strategy import MomentumStrategy
 from strategies.vwap_strategy import VWAPStrategy
 from strategies.ohl_strategy import OHLStrategy
 from strategies.inside_bar_strategy import InsideBarStrategy
+from strategies.smc_liquidity_strategy import SMCLiquidityStrategy
 from core.decision_engine import DecisionEngine
 from db.database import init_db
 from db.repository import TradeRepository
@@ -19,7 +20,7 @@ def run_bot():
     parser = argparse.ArgumentParser(description="Nifty Options Trading Bot")
     parser.add_argument("--test", action="store_true", help="Run in Mock Mode for local testing")
     parser.add_argument("--dry-run", action="store_true", help="Run with Real Data but DO NOT place orders")
-    parser.add_argument("--strategy", type=str, default="STRADDLE", choices=["STRADDLE", "ORB", "MOMENTUM", "VWAP", "OHL", "INSIDE_BAR"], help="Choose Strategy")
+    parser.add_argument("--strategy", type=str, default="STRADDLE", choices=["STRADDLE", "ORB", "MOMENTUM", "VWAP", "OHL", "INSIDE_BAR", "SMC"], help="Choose Strategy")
     parser.add_argument("--auto", action="store_true", help="Enable Smart Auto-Mode (AI Selects Strategy)")
     args = parser.parse_args()
 
@@ -85,6 +86,9 @@ def run_bot():
     elif args.strategy == "INSIDE_BAR":
         print(f"\n>>> [Strategy] Selected: Inside Bar Breakout 🔥")
         bot = InsideBarStrategy(api, loader, dry_run=args.dry_run)
+    elif args.strategy == "SMC":
+        print(f"\n>>> [Strategy] Selected: Institutional SMC Liquidity 🏛️")
+        bot = SMCLiquidityStrategy(api, loader, dry_run=args.dry_run)
     else:
         print(f"\n>>> [Strategy] Selected: 9:20 Straddle (Short) 📉")
         bot = NiftyStrategy(api, loader, dry_run=args.dry_run)
@@ -104,6 +108,8 @@ def run_bot():
         # Directional buying
         bot.execute(expiry=expiry, action="BUY")
     elif args.strategy == "MOMENTUM":
+        bot.execute(expiry=expiry)
+    elif args.strategy == "SMC":
         bot.execute(expiry=expiry)
     else:
         # Straddle (Short)
