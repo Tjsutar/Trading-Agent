@@ -203,3 +203,4 @@ class SessionManager:
             self._stop_event.set()
             self._renewal_thread.join(timeout=2.0)
             logger.info("SessionManager: Background renewal daemon stopped.")
+

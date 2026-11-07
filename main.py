@@ -44,7 +44,8 @@ def run_bot():
         
         session_mgr = SessionManager(is_mock=False)
         if not session_mgr.connect():
-            print(">>> [System] Authentication Failed. Exiting.")
+            print("\n❌ [System] Authentication Failed: Broker credentials not configured or rejected.")
+            print("👉 Run 'python tests/verify_login.py' to diagnose your .env credentials.")
             return
 
         session_mgr.start_renewal_daemon(interval_seconds=60)

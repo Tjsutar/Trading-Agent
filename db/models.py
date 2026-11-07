@@ -122,3 +122,4 @@ class StrategyConfig(Base):
     version = Column(Integer, default=1)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+

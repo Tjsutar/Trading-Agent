@@ -127,3 +127,4 @@ class BacktestEngine:
             "max_drawdown_pct": round(max_drawdown, 2),
             "expectancy": round(expectancy, 2)
         }
+

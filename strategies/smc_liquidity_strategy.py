@@ -254,3 +254,4 @@ class SMCLiquidityStrategy:
                 print(f">>> [SMC] ⚡ Signal: {sig['signal_type']} | Entry: {sig['entry_price']:.2f} | SL: {sig['stop_loss']:.2f} | TP1: {sig['take_profit_1']:.2f} | RR: 1:{sig['risk_reward']}")
             else:
                 print(">>> [SMC] No liquidity sweep signal aligned with HTF bias.")
+

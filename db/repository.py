@@ -202,3 +202,4 @@ class TradeRepository:
             session.flush()
             session.refresh(log)
             return log
+

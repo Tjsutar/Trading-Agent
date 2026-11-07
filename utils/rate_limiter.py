@@ -68,3 +68,4 @@ class TokenBucketRateLimiter:
 # Global rate limiter instances for standard broker endpoints
 market_data_limiter = TokenBucketRateLimiter(rate=5.0, capacity=10.0)  # 5 req/s
 order_execution_limiter = TokenBucketRateLimiter(rate=10.0, capacity=20.0)  # 10 req/s
+
