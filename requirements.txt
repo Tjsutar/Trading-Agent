@@ -1,5 +1,8 @@
-smartapi-python
-pyotp
-pandas
-python-dotenv
-requests
+smartapi-python>=1.5.5
+logzero>=1.7.0
+websocket-client>=1.9.2
+pyotp>=2.9.0
+pandas>=2.0.0
+python-dotenv>=1.0.0
+requests>=2.31.0
+sqlalchemy>=2.0.0

@@ -1,5 +1,6 @@
 import argparse
 import sys
+from core.session_manager import SessionManager
 from core.angel_connect import get_angel_session
 from utils.token_lookup import TokenLookup
 from strategies.nifty_straddle import NiftyStrategy
@@ -11,6 +12,8 @@ from strategies.vwap_strategy import VWAPStrategy
 from strategies.ohl_strategy import OHLStrategy
 from strategies.inside_bar_strategy import InsideBarStrategy
 from core.decision_engine import DecisionEngine
+from db.database import init_db
+from db.repository import TradeRepository
 
 def run_bot():
     parser = argparse.ArgumentParser(description="Nifty Options Trading Bot")
@@ -20,20 +23,31 @@ def run_bot():
     parser.add_argument("--auto", action="store_true", help="Enable Smart Auto-Mode (AI Selects Strategy)")
     args = parser.parse_args()
 
+    # Ensure database schema is initialized
+    init_db()
+
+    session_mgr = None
     if args.test:
         print("\n>>> [System] STARTING IN MOCK MODE 🟢")
-        api = MockSmartConnect()
+        mock_api = MockSmartConnect()
+        session_mgr = SessionManager(is_mock=True, mock_instance=mock_api)
+        session_mgr.connect()
+        api = session_mgr.get_api()
         loader = MockTokenLookup()
-        loader.load_scrip_master() # Just to be consistent with the interface
+        loader.load_scrip_master()
     else:
-        # 1. Initialize Connection
+        # 1. Initialize Connection via SessionManager
         if args.dry_run:
             print("\n>>> [System] STARTING IN DRY RUN MODE 🟡") 
             print("    (Real Data, No Orders)")
         
-        api = get_angel_session()
-        if not api:
+        session_mgr = SessionManager(is_mock=False)
+        if not session_mgr.connect():
+            print(">>> [System] Authentication Failed. Exiting.")
             return
+
+        session_mgr.start_renewal_daemon(interval_seconds=60)
+        api = session_mgr.get_api()
 
         # 2. Initialize Data Loader
         loader = TokenLookup()
