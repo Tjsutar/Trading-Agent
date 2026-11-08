@@ -40,8 +40,8 @@ def run_bot():
         loader.load_scrip_master()
     elif args.paper:
         print("\n>>> [System] STARTING IN PAPER TRADING MODE 📄")
-        print("    (Realistic Simulated Execution & Database State Persistence)")
-        paper_api = PaperBroker(starting_cash=100000.0)
+        print("    (Realistic Simulated Execution with ₹15,000 Capital & Database Persistence)")
+        paper_api = PaperBroker(starting_cash=15000.0)
         session_mgr = SessionManager(is_mock=True, mock_instance=paper_api)
         session_mgr.connect()
         api = session_mgr.get_api()
