@@ -1,82 +1,70 @@
+"""
+Unit tests for PositionManager and MomentumStrategy Trailing Stop-Loss (TSL).
+"""
+import unittest
 import sys
 import os
-import time
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import datetime
+from pathlib import Path
+
+# Add project root to sys.path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from core.position_manager import PositionManager
+from strategies.momentum_strategy import MomentumStrategy
 
-# Mock API
+
 class MockAPI:
     def placeOrder(self, params):
         return "TEST_ORDER_ID"
 
-# Subclass to inject price sequence
-class TestPositionManager(PositionManager):
-    def __init__(self, prices):
-        super().__init__(MockAPI(), dry_run=True)
-        self.prices = prices # List of prices to feed
-        self.idx = 0
-        
-    def get_ltp(self, token):
-        if self.idx < len(self.prices):
-            price = self.prices[self.idx]
-            self.idx += 1
-            return price
-        return self.prices[-1] # Stay at last price
+    def ltpData(self, exchange, symbol, token):
+        return {"status": True, "data": {"ltp": 100.0}}
 
-def test_tsl_scenario():
-    print(">>> [Test] Simulating TSL Scenario: Rally then Crash")
-    
-    # Buy @ 100
-    # Sequence: 
-    # 1. 100 (0%)
-    # 2. 105 (+5%)
-    # 3. 110 (+10%) -> Expect TSL to Breakeven (0% / 100)
-    # 4. 115 (+15%) -> Expect TSL to +5% (105)
-    # 5. 122 (+22%) -> Expect TSL to +12% (112) [Round(22-10, 2) = 0.12]
-    # 6. 115 (+15%) -> Price drops. TSL is 112. Safe.
-    # 7. 110 (+10%) -> Price drops below 112. EXIT!
-    
-    prices = [100, 105, 110, 115, 122, 115, 110]
-    
-    manager = TestPositionManager(prices)
-    
-    # Fake Position
-    pos = {
-        'symbol': 'NIFTY26FEB22000CE',
-        'token': '12345',
-        'entry_price': 100.0,
-        'qty': 50
-    }
-    
-    # Patch datetime in the module
-    import core.position_manager as pm
-    from unittest.mock import MagicMock
-    import datetime
 
-    # Mock Current Time to 10:00 AM
-    mock_now = datetime.datetime.now().replace(hour=10, minute=0, second=0)
-    
-    # Create a mock class that behaves like datetime.datetime
-    class MockDatetime(datetime.datetime):
-        @classmethod
-        def now(cls):
-            return mock_now
+class TestTSL(unittest.TestCase):
 
-    # Patch it
-    original_datetime = pm.datetime.datetime
-    pm.datetime.datetime = MockDatetime
-    
-    # Faster Sleep for test
-    original_sleep = pm.time.sleep
-    pm.time.sleep = lambda x: None # No Delay
-    
-    try:
-        manager.monitor([pos])
-    finally:
-        # Restore
-        pm.datetime.datetime = original_datetime
-        pm.time.sleep = original_sleep
+    def test_momentum_trailing_sl_escalation(self):
+        api = MockAPI()
+        bot = MomentumStrategy(api=api, token_loader=None, dry_run=True, starting_capital=15000.0)
+
+        # Simulate entered position @ ₹90
+        bot.active_position = {
+            "order_id": "POS-TEST",
+            "symbol": "NIFTY_CE_25000",
+            "token": "12345",
+            "entry_price": 90.0,
+            "highest_price": 90.0,
+            "sl_price": 74.0,  # -16 pts initial stop
+            "target_price": 126.0,
+            "be_active": False,
+            "qty": 65
+        }
+
+        # 1. Price at 95 (+5 pts) -> SL remains 74.0
+        bot.get_option_ltp = lambda sym, tok: 95.0
+        self.assertFalse(bot.check_trailing_stop())
+        self.assertEqual(bot.active_position["sl_price"], 74.0)
+        self.assertFalse(bot.active_position["be_active"])
+
+        # 2. Price surges to 102 (+12 pts) -> Breakeven triggers & Dynamic TSL locks peak - 8 = 94.0
+        bot.get_option_ltp = lambda sym, tok: 102.0
+        self.assertFalse(bot.check_trailing_stop())
+        self.assertTrue(bot.active_position["be_active"])
+        self.assertEqual(bot.active_position["sl_price"], 94.0)  # 102 - 8 = 94.0 (Locks +4 pts!)
+
+        # 3. Price rallies to 118 (+28 pts peak) -> Dynamic TSL trails (118 - 8 = 110.0)
+        bot.get_option_ltp = lambda sym, tok: 118.0
+        self.assertFalse(bot.check_trailing_stop())
+        self.assertEqual(bot.active_position["highest_price"], 118.0)
+        self.assertEqual(bot.active_position["sl_price"], 110.0)  # Locked +20 pts profit!
+
+        # 4. Price retraces to 109.5 -> Hits trailing stop! (<= 110.0)
+        bot.get_option_ltp = lambda sym, tok: 109.5
+        exited = bot.check_trailing_stop()
+        self.assertTrue(exited)
+        self.assertIsNone(bot.active_position)  # Position safely closed with locked profit!
+
 
 if __name__ == "__main__":
-    test_tsl_scenario()
+    unittest.main()

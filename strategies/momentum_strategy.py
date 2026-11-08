@@ -14,6 +14,7 @@ import datetime
 import json
 import os
 import random
+from typing import Optional, Any, Dict, List, Tuple
 import pandas as pd
 import numpy as np
 
@@ -22,6 +23,7 @@ from core.safety_checks import SafetyGatekeeper
 from core.data_fetcher import DataFetcher
 from db.repository import TradeRepository
 from utils.logger import get_logger
+from utils.notifier import notifier
 
 logger = get_logger("MomentumStrategy")
 
@@ -40,7 +42,11 @@ class MomentumStrategy:
         self.data_failure_count = 0
         self.active_position = None
         self.daily_trade_count = 0
-        self.max_trades_per_day = 2
+        self.max_trades_per_day = Config.MAX_TRADES_PER_DAY
+        self.had_loss_today = False
+        self.min_adx = Config.MIN_ADX_TREND
+        self.be_trigger = Config.FAST_BREAKEVEN_PTS
+        self.be_lock = Config.BREAKEVEN_LOCK_PTS
         self.load_state()
 
     def save_state(self):
@@ -83,7 +89,14 @@ class MomentumStrategy:
         if not ltp or ltp <= 0:
             return False
 
+        # Track peak option price reached
+        highest_price = self.active_position.get('highest_price', entry_price)
+        if ltp > highest_price:
+            highest_price = ltp
+            self.active_position['highest_price'] = highest_price
+
         profit_pts = ltp - entry_price
+        peak_profit = highest_price - entry_price
 
         # 1. Target Hit Exit (+36 pts)
         if target_price > 0 and ltp >= target_price:
@@ -91,28 +104,51 @@ class MomentumStrategy:
             self.close_position("TARGET_HIT", exit_price=ltp)
             return True
 
-        # 2. Stop Loss Hit Exit (-16 pts or trailing/breakeven stop)
-        if current_sl > 0 and ltp <= current_sl:
-            reason = "BREAKEVEN_STOP" if self.active_position.get("be_active") else "HARD_STOP_LOSS"
-            logger.info(f"🛑 {reason} Hit! Price: {ltp} <= SL: {current_sl}")
-            self.close_position(reason, exit_price=ltp)
-            return True
+        # 2. Dynamic Trailing Stop Loss & Fast Breakeven
+        if peak_profit >= self.be_trigger:
+            # Phase 1: Fast Breakeven at +10 pts (Lock Cost + 2 pts)
+            if not self.active_position.get("be_active"):
+                self.active_position["be_active"] = True
+                be_sl = round(entry_price + self.be_lock, 1)
+                if be_sl > current_sl:
+                    old_sl = current_sl
+                    current_sl = be_sl
+                    self.active_position['sl_price'] = current_sl
+                    logger.info(f"🔒 Breakeven Active! Peak +{peak_profit:.1f} pts. SL moved to {current_sl} (Risk-Free).")
+                    TradeRepository.record_sl_modification(
+                        order_id=order_id,
+                        old_sl=old_sl,
+                        new_sl=current_sl,
+                        current_price=ltp,
+                        reason="BREAKEVEN"
+                    )
+                    notifier.notify_sl_moved(symbol, old_sl, current_sl, "BREAKEVEN")
+                    self.save_state()
 
-        # 3. Breakeven Escalation (+15 pts profit moves SL to Cost + 2 pts buffer)
-        if profit_pts >= 15.0 and not self.active_position.get("be_active"):
-            new_sl = round(entry_price + 2.0, 1)
-            self.active_position['sl_price'] = new_sl
-            self.active_position['be_active'] = True
-            logger.info(f"🔒 Breakeven Active! Profit +{profit_pts:.1f} pts. SL moved to {new_sl} (Risk-Free).")
-            
-            TradeRepository.record_sl_modification(
-                order_id=order_id,
-                old_sl=current_sl,
-                new_sl=new_sl,
-                current_price=ltp,
-                reason="BREAKEVEN"
-            )
-            self.save_state()
+            # Phase 2: Dynamic Continuous Trailing (trail 8 pts behind peak)
+            trail_sl = round(highest_price - Config.TSL_DISTANCE, 1)
+            if trail_sl > current_sl:
+                old_sl = current_sl
+                current_sl = trail_sl
+                self.active_position['sl_price'] = current_sl
+                locked_profit = current_sl - entry_price
+                logger.info(f"📈 Trailing SL Escalated! Peak: ₹{highest_price:.1f} ➔ New SL: ₹{current_sl:.1f} (+{locked_profit:.1f} pts locked).")
+                TradeRepository.record_sl_modification(
+                    order_id=order_id,
+                    old_sl=old_sl,
+                    new_sl=current_sl,
+                    current_price=ltp,
+                    reason="DYNAMIC_TSL"
+                )
+                notifier.notify_sl_moved(symbol, old_sl, current_sl, f"TSL +{locked_profit:.1f} pts locked")
+                self.save_state()
+
+        # 3. Stop Loss Hit Exit (Hard SL or Trailing SL)
+        if current_sl > 0 and ltp <= current_sl:
+            reason = "TRAILING_STOP_HIT" if self.active_position.get("be_active") else "HARD_STOP_LOSS"
+            logger.info(f"🛑 {reason}! Price: {ltp} <= SL: {current_sl}")
+            self.close_position(reason, exit_price=current_sl)
+            return True
 
         return False
 
@@ -150,7 +186,9 @@ class MomentumStrategy:
 
                 # 3. Look for Entry Signals if flat
                 if not self.active_position:
-                    if self.daily_trade_count >= self.max_trades_per_day:
+                    if Config.STOP_ON_FIRST_LOSS and self.had_loss_today:
+                        logger.info("🛑 Stop-on-1st-Loss active! Capital protected after today's loss. Sitting in cash.")
+                    elif self.daily_trade_count >= self.max_trades_per_day:
                         logger.info(f"Daily trade limit reached ({self.daily_trade_count}/{self.max_trades_per_day}). Waiting for next session.")
                     else:
                         # Bullish Crossover: EMA 9 > 21 + RSI < 68
@@ -214,6 +252,26 @@ class MomentumStrategy:
         ema21 = float(last['EMA21'])
         ema50 = float(last['EMA50'])
         rsi = float(last['RSI']) if not np.isnan(last['RSI']) else 50.0
+
+        # ADX Regime Check (Detect true trending vs sideways chop)
+        adx = 25.0
+        if "high" in df.columns and "low" in df.columns and len(df) >= 28:
+            high = df["high"]
+            low = df["low"]
+            close = df["close"]
+            plus_dm = np.where((high.diff() > -low.diff()) & (high.diff() > 0), high.diff(), 0.0)
+            minus_dm = np.where((-low.diff() > high.diff()) & (-low.diff() > 0), -low.diff(), 0.0)
+            tr = pd.concat([high - low, abs(high - close.shift(1)), abs(low - close.shift(1))], axis=1).max(axis=1)
+            atr14 = tr.ewm(span=14, adjust=False).mean()
+            plus_di14 = 100 * (pd.Series(plus_dm, index=df.index).ewm(span=14, adjust=False).mean() / atr14)
+            minus_di14 = 100 * (pd.Series(minus_dm, index=df.index).ewm(span=14, adjust=False).mean() / atr14)
+            dx = 100 * (abs(plus_di14 - minus_di14) / (plus_di14 + minus_di14).replace(0, np.nan))
+            adx_val = dx.ewm(span=14, adjust=False).mean().iloc[-1]
+            adx = float(adx_val) if not np.isnan(adx_val) else 25.0
+
+        if not np.isnan(adx) and adx < self.min_adx:
+            logger.info(f"[Regime Gate] Choppy sideways market detected (ADX: {adx:.1f} < {self.min_adx}). Gating entries to prevent false breakouts.")
+            return "NEUTRAL", ema9, ema21, ema50, rsi
 
         if ema9 > ema21:
             return "BULLISH", ema9, ema21, ema50, rsi
@@ -302,12 +360,16 @@ class MomentumStrategy:
             'qty': qty,
             'token': token,
             'entry_price': quote_ltp,
+            'highest_price': quote_ltp,
             'sl_price': sl_price,
+            'initial_sl': sl_price,
             'target_price': target_price,
             'be_active': False
         }
         self.daily_trade_count += 1
         self.save_state()
+
+        notifier.notify_trade_entry(symbol, f"BUY {leg}", qty, quote_ltp, sl_price, target_price)
 
         if self.market_stream and token:
             self.market_stream.subscribe(str(token), exchange_type=2)
@@ -347,6 +409,10 @@ class MomentumStrategy:
             pnl=pnl,
             reason=reason
         )
+
+        notifier.notify_trade_exit(symbol, actual_exit, pnl, reason)
+        if pnl < 0:
+            self.had_loss_today = True
 
         self.active_position = None
         if self.market_stream and token:
