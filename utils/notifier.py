@@ -105,3 +105,4 @@ class AlertNotifier:
 
 # Global singleton instance
 notifier = AlertNotifier()
+
