@@ -1,5 +1,6 @@
 """
-Download and cache 3 months of real historical M5 candles from Angel One SmartAPI.
+Download and cache historical M5 candles from Angel One SmartAPI.
+Supports 1 month, 3 months, 6 months, and 1 year data retrieval.
 """
 import sys
 import os
@@ -7,27 +8,29 @@ import time
 from datetime import datetime, timedelta
 import pandas as pd
 from pathlib import Path
+import argparse
 
 # Add project root to sys.path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from core.session_manager import SessionManager
 
 
-def download_3m_data(output_file: str = "data/nifty_3m_5min.csv"):
+def download_historical_data(days: int = 365, output_file: str = "data/nifty_1y_5min.csv") -> pd.DataFrame:
     mgr = SessionManager()
     if not mgr.connect():
-        print("Failed to connect to Angel One.")
-        return
+        print("❌ Failed to connect to Angel One SmartAPI.")
+        return None
 
     api = mgr.get_api()
     all_candles = []
     now = datetime.now()
+    num_chunks = (days // 30) + (1 if days % 30 != 0 else 0)
 
-    print("Fetching 3 months of authentic Nifty 50 historical candles...")
-    for chunk in range(3):
+    print(f"📥 Fetching {days} days (~{num_chunks} months) of authentic Nifty 50 historical 5-min candles...")
+    for chunk in range(num_chunks):
         time.sleep(1.2)  # Respect Angel One rate limit
         chunk_to = now - timedelta(days=chunk * 30)
-        chunk_from = now - timedelta(days=(chunk + 1) * 30)
+        chunk_from = now - timedelta(days=min((chunk + 1) * 30, days))
 
         params = {
             "exchange": "NSE",
@@ -39,7 +42,7 @@ def download_3m_data(output_file: str = "data/nifty_3m_5min.csv"):
         res = api.getCandleData(params)
         if res and res.get("status") and res.get("data"):
             rows = res["data"]
-            print(f"  • Chunk {chunk + 1} ({chunk_from.strftime('%Y-%m-%d')} to {chunk_to.strftime('%Y-%m-%d')}): {len(rows)} candles")
+            print(f"  • Chunk {chunk + 1}/{num_chunks} ({chunk_from.strftime('%Y-%m-%d')} to {chunk_to.strftime('%Y-%m-%d')}): {len(rows)} candles")
             for r in rows:
                 all_candles.append({
                     "time": pd.to_datetime(r[0]),
@@ -50,7 +53,11 @@ def download_3m_data(output_file: str = "data/nifty_3m_5min.csv"):
                     "volume": float(r[5]) if len(r) > 5 else 1000.0
                 })
         else:
-            print(f"  • Chunk {chunk + 1} error:", res)
+            print(f"  • Chunk {chunk + 1}/{num_chunks} error:", res)
+
+    if not all_candles:
+        print("❌ No candle data retrieved.")
+        return None
 
     df = pd.DataFrame(all_candles)
     df.drop_duplicates(subset=["time"], inplace=True)
@@ -65,4 +72,9 @@ def download_3m_data(output_file: str = "data/nifty_3m_5min.csv"):
 
 
 if __name__ == "__main__":
-    download_3m_data()
+    parser = argparse.ArgumentParser(description="Download Angel One Nifty 50 historical candles")
+    parser.add_argument("--days", type=int, default=365, help="Number of days to download (default: 365)")
+    parser.add_argument("--output", type=str, default="data/nifty_1y_5min.csv", help="Output CSV path")
+    args = parser.parse_args()
+
+    download_historical_data(days=args.days, output_file=args.output)

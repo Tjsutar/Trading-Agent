@@ -83,12 +83,14 @@ def run_bot():
     # In test mode, api and loader are mocks. Strategy should work transparently.
     # In dry_run mode, we pass True to dry_run arg of Strategy
     
+    market_stream = session_mgr.get_market_stream() if hasattr(session_mgr, "get_market_stream") else None
+
     if args.strategy == "ORB":
         print(f"\n>>> [Strategy] Selected: Open Range Breakout (ORB)")
         bot = ORBStrategy(api, loader, dry_run=args.dry_run)
     elif args.strategy == "MOMENTUM":
         print(f"\n>>> [Strategy] Selected: Momentum (EMA Crossover) ⚡")
-        bot = MomentumStrategy(api, loader, dry_run=args.dry_run)
+        bot = MomentumStrategy(api, loader, dry_run=args.dry_run, market_stream=market_stream)
     elif args.strategy == "VWAP":
         print(f"\n>>> [Strategy] Selected: VWAP Institutional Trend (Pro Mode) 🚀")
         bot = VWAPStrategy(api, loader, dry_run=args.dry_run)

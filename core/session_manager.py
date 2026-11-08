@@ -12,6 +12,8 @@ from SmartApi import SmartConnect
 from config.settings import Config
 from db.repository import TradeRepository
 from utils.logger import get_logger
+from core.resilient_client import ResilientSmartClient
+from core.market_data_stream import MarketDataStream
 
 logger = get_logger("SessionManager")
 
@@ -51,6 +53,8 @@ class SessionManager:
         self._lock = threading.RLock()
         self._renewal_thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
+        self._resilient_client: Optional[ResilientSmartClient] = None
+        self._market_stream: Optional[MarketDataStream] = None
 
     def connect(self) -> bool:
         """Initial connection to the broker."""
@@ -178,10 +182,32 @@ class SessionManager:
             return True
 
     def get_api(self):
-        """Returns the active broker API instance, checking session health first."""
+        """Returns the resilient broker API proxy, checking session health first."""
         with self._lock:
             self.check_and_renew()
-            return self.api
+            if self.is_mock or not self.api:
+                return self.api
+            if not self._resilient_client or self._resilient_client._raw_api != self.api:
+                self._resilient_client = ResilientSmartClient(self.api, session_manager=self)
+            return self._resilient_client
+
+    def get_market_stream(self) -> MarketDataStream:
+        """
+        Returns or initializes the real-time MarketDataStream WebSocket instance.
+        Streams ticks continuously over a single persistent TCP socket (Zero REST calls).
+        """
+        with self._lock:
+            if not self._market_stream:
+                self._market_stream = MarketDataStream(
+                    auth_token=self.jwt_token,
+                    api_key=self.api_key,
+                    client_code=self.client_id,
+                    feed_token=self.feed_token,
+                    is_mock=self.is_mock,
+                    resilient_api=self.get_api()
+                )
+                self._market_stream.start()
+            return self._market_stream
 
     def start_renewal_daemon(self, interval_seconds: int = 60):
         """Spawns background thread to monitor and renew session proactively."""
@@ -198,9 +224,12 @@ class SessionManager:
         logger.info(f"SessionManager: Background renewal daemon started (interval: {interval_seconds}s).")
 
     def stop_renewal_daemon(self):
-        """Stops the background renewal daemon."""
+        """Stops the background renewal daemon and market data stream."""
         if self._renewal_thread and self._renewal_thread.is_alive():
             self._stop_event.set()
             self._renewal_thread.join(timeout=2.0)
             logger.info("SessionManager: Background renewal daemon stopped.")
+        if self._market_stream:
+            self._market_stream.stop()
+            self._market_stream = None
 

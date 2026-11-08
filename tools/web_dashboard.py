@@ -486,3 +486,4 @@ def run_dashboard_server(port: int = 8080):
 if __name__ == "__main__":
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 8080
     run_dashboard_server(port)
+
