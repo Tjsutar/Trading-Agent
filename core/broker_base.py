@@ -87,3 +87,4 @@ class BrokerAdapter(ABC):
     def get_available_margin(self) -> float:
         """Return available cash / net trading margin."""
         pass
+

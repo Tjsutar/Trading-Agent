@@ -229,3 +229,4 @@ class MT5Adapter(BrokerAdapter):
             return 0.0
         acc = mt5.account_info()
         return float(acc.margin_free if acc else 0.0)
+

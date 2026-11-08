@@ -12,6 +12,7 @@ from strategies.vwap_strategy import VWAPStrategy
 from strategies.ohl_strategy import OHLStrategy
 from strategies.inside_bar_strategy import InsideBarStrategy
 from strategies.smc_liquidity_strategy import SMCLiquidityStrategy
+from core.paper_broker import PaperBroker
 from core.decision_engine import DecisionEngine
 from db.database import init_db
 from db.repository import TradeRepository
@@ -19,6 +20,7 @@ from db.repository import TradeRepository
 def run_bot():
     parser = argparse.ArgumentParser(description="Nifty Options Trading Bot")
     parser.add_argument("--test", action="store_true", help="Run in Mock Mode for local testing")
+    parser.add_argument("--paper", action="store_true", help="Run in Paper Trading Mode (Realistic Simulated Execution)")
     parser.add_argument("--dry-run", action="store_true", help="Run with Real Data but DO NOT place orders")
     parser.add_argument("--strategy", type=str, default="STRADDLE", choices=["STRADDLE", "ORB", "MOMENTUM", "VWAP", "OHL", "INSIDE_BAR", "SMC"], help="Choose Strategy")
     parser.add_argument("--auto", action="store_true", help="Enable Smart Auto-Mode (AI Selects Strategy)")
@@ -32,6 +34,15 @@ def run_bot():
         print("\n>>> [System] STARTING IN MOCK MODE 🟢")
         mock_api = MockSmartConnect()
         session_mgr = SessionManager(is_mock=True, mock_instance=mock_api)
+        session_mgr.connect()
+        api = session_mgr.get_api()
+        loader = MockTokenLookup()
+        loader.load_scrip_master()
+    elif args.paper:
+        print("\n>>> [System] STARTING IN PAPER TRADING MODE 📄")
+        print("    (Realistic Simulated Execution & Database State Persistence)")
+        paper_api = PaperBroker(starting_cash=100000.0)
+        session_mgr = SessionManager(is_mock=True, mock_instance=paper_api)
         session_mgr.connect()
         api = session_mgr.get_api()
         loader = MockTokenLookup()

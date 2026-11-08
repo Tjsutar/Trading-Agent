@@ -172,3 +172,53 @@ class PaperBroker(BrokerAdapter):
 
     def get_available_margin(self) -> float:
         return self.cash
+
+    # =========================================================================
+    # SmartAPI Interface Compatibility Layer (Drop-in broker support)
+    # =========================================================================
+    def ltpData(self, exchange: str, tradingsymbol: str, symboltoken: str) -> Dict[str, Any]:
+        ltp = self.get_ltp(tradingsymbol, exchange)
+        return {
+            "status": True,
+            "data": {
+                "ltp": ltp,
+                "exchange": exchange,
+                "tradingsymbol": tradingsymbol,
+                "symboltoken": symboltoken
+            }
+        }
+
+    def placeOrder(self, orderparams: Dict[str, Any]) -> str:
+        symbol = orderparams.get("tradingsymbol", "NIFTY")
+        side = orderparams.get("transactiontype", "BUY")
+        qty = float(orderparams.get("quantity", 1))
+        order_type = orderparams.get("ordertype", "MARKET")
+        price = float(orderparams.get("price", 0.0)) if orderparams.get("price") else None
+        
+        order_id = self.place_order(symbol, side, qty, order_type, price)
+        return order_id or f"PAPER-FAIL-{uuid.uuid4().hex[:6]}"
+
+    def orderBook(self) -> Dict[str, Any]:
+        return {
+            "status": True,
+            "data": [
+                {
+                    "orderid": o["order_id"],
+                    "status": "complete",
+                    "tradingsymbol": o["symbol"],
+                    "transactiontype": o["side"],
+                    "quantity": o["qty"]
+                }
+                for o in self.orders.values()
+            ]
+        }
+
+    def rmsLimit(self) -> Dict[str, Any]:
+        return {
+            "status": True,
+            "data": {
+                "net": str(self.cash),
+                "availableCash": str(self.cash)
+            }
+        }
+
