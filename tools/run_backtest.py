@@ -23,10 +23,55 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from core.backtester import BacktestEngine
 from strategies.smc_liquidity_strategy import SMCLiquidityStrategy
+from core.session_manager import SessionManager
 from db.database import init_db
 from utils.logger import get_logger
 
 logger = get_logger("BacktestRunner")
+
+
+def fetch_angel_candles(symboltoken: str = "99926000", interval: str = "FIVE_MINUTE", days: int = 15) -> Optional[pd.DataFrame]:
+    """
+    Fetches real historical candlestick data directly from Angel One SmartAPI.
+    """
+    try:
+        mgr = SessionManager()
+        if not mgr.connect():
+            logger.warning("Could not connect to Angel One for historical data.")
+            return None
+
+        api = mgr.get_api()
+        to_date = datetime.now().strftime("%Y-%m-%d %H:%M")
+        from_date = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d %H:%M")
+
+        params = {
+            "exchange": "NSE",
+            "symboltoken": symboltoken,
+            "interval": interval,
+            "fromdate": from_date,
+            "todate": to_date
+        }
+        res = api.getCandleData(params)
+        if res and res.get("status") and res.get("data"):
+            rows = res["data"]
+            candles = []
+            for r in rows:
+                candles.append({
+                    "time": pd.to_datetime(r[0]),
+                    "open": float(r[1]),
+                    "high": float(r[2]),
+                    "low": float(r[3]),
+                    "close": float(r[4]),
+                    "volume": float(r[5]) if len(r) > 5 else 1000.0
+                })
+            df = pd.DataFrame(candles)
+            df.set_index("time", inplace=True)
+            logger.info(f"Retrieved {len(df)} real historical candles from Angel One.")
+            return df
+        return None
+    except Exception as e:
+        logger.error(f"Error fetching Angel One candles: {e}")
+        return None
 
 
 def generate_market_data(days: int = 40, candles_per_day: int = 75, base_price: float = 23000.0) -> pd.DataFrame:
@@ -290,7 +335,8 @@ def run_smc_backtest(df: pd.DataFrame, starting_capital: float = 100000.0) -> Li
 def main():
     parser = argparse.ArgumentParser(description="T-Agent Quantitative Backtest Runner")
     parser.add_argument("--strategy", type=str, default="SMC", choices=["SMC"], help="Strategy to backtest")
-    parser.add_argument("--days", type=int, default=45, help="Number of trading days to simulate")
+    parser.add_argument("--source", type=str, default="angel", choices=["angel", "simulated"], help="Data source: 'angel' for real SmartAPI candles, 'simulated' for synthetic")
+    parser.add_argument("--days", type=int, default=15, help="Number of trading days to simulate/fetch")
     parser.add_argument("--capital", type=float, default=100000.0, help="Starting capital")
     parser.add_argument("--output", type=str, default="data/backtest_report.json", help="Report output path")
     args = parser.parse_args()
@@ -301,11 +347,21 @@ def main():
     print(f"   📈 T-AGENT QUANTITATIVE BACKTEST RUNNER (BRD SECTION 10.1)")
     print("=" * 65)
     print(f" Strategy:         {args.strategy}")
-    print(f" Historical Span:  {args.days} Trading Days (~{args.days * 75} M5 Candles)")
+    print(f" Historical Span:  {args.days} Days")
     print(f" Starting Capital: ₹{args.capital:,.2f}")
-    print(" Simulating multi-regime market dataset...")
 
-    df = generate_market_data(days=args.days)
+    df = None
+    if args.source == "angel":
+        print(" Ingesting REAL historical Nifty 50 candle data from Angel One SmartAPI...")
+        df = fetch_angel_candles(days=args.days)
+        if df is not None and len(df) > 50:
+            print(f" ✅ Loaded {len(df)} authentic historical M5 candles from Angel One.")
+        else:
+            print(" ⚠️ Could not fetch from Angel One. Falling back to simulated dataset.")
+            df = generate_market_data(days=args.days)
+    else:
+        print(" Generating multi-regime simulated dataset...")
+        df = generate_market_data(days=args.days)
 
     print(f" Executing {args.strategy} with 2% Daily Loss Kill Switch & Trailing Stops...")
     trades = run_smc_backtest(df, starting_capital=args.capital)
