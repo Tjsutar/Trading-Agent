@@ -169,6 +169,10 @@ def run_smc_backtest(df: pd.DataFrame, starting_capital: float = 100000.0) -> Li
         "volume": "sum"
     }).dropna()
 
+    # Calculate Macro Trend Filter (50-period EMA on 5-min or resampled)
+    df["ema50"] = df["close"].ewm(span=50, adjust=False).mean()
+    df["ema200"] = df["close"].ewm(span=200, adjust=False).mean()
+
     for date, day_df in daily_groups:
         daily_loss = 0.0
         kill_switch = False
@@ -199,12 +203,22 @@ def run_smc_backtest(df: pd.DataFrame, starting_capital: float = 100000.0) -> Li
                 sl = active_trade["sl"]
                 tp1 = active_trade["tp1"]
 
-                # Breakeven escalation (+50% towards TP1)
+                # Breakeven escalation: Move SL to Cost+Buffer only after reaching 75% of Target
                 if not active_trade["be_active"]:
-                    if (side == "BUY" and current_candle["high"] >= entry + (tp1 - entry) * 0.5) or \
-                       (side == "SELL" and current_candle["low"] <= entry - (entry - tp1) * 0.5):
-                        active_trade["sl"] = entry
+                    if (side == "BUY" and current_candle["high"] >= entry + (tp1 - entry) * 0.75):
+                        active_trade["sl"] = entry + (risk * 0.1)  # Lock in cost + tiny profit
                         active_trade["be_active"] = True
+                    elif (side == "SELL" and current_candle["low"] <= entry - (entry - tp1) * 0.75):
+                        active_trade["sl"] = entry - (risk * 0.1)
+                        active_trade["be_active"] = True
+
+                # Trailing SL: Dynamic ATR trailing once in strong profit
+                if side == "BUY" and current_candle["high"] > active_trade.get("peak", entry):
+                    active_trade["peak"] = current_candle["high"]
+                    if active_trade["be_active"]:
+                        trail_sl = active_trade["peak"] - (atr * 1.5)
+                        if trail_sl > active_trade["sl"]:
+                            active_trade["sl"] = trail_sl
 
                 # Check Stop / Target hits
                 if side == "BUY":
@@ -263,14 +277,18 @@ def run_smc_backtest(df: pd.DataFrame, starting_capital: float = 100000.0) -> Li
                 prev_c = day_df.iloc[i-1]
                 zones = SMCLiquidityStrategy.detect_liquidity_zones(m5_window, atr_multiplier=0.25)
 
-                # Bullish liquidity sweep (swept low and closed back inside range)
-                for zone in zones["eql"]:
-                    z_key = f"EQL-{zone['level']:.0f}"
-                    if z_key in consumed_zones:
-                        continue
+                macro_bull = cmp > current_candle["ema50"]
+                macro_bear = cmp < current_candle["ema50"]
 
-                    if prev_c["low"] <= zone["level"] and current_candle["close"] > zone["level"]:
-                        if bias in ["BULLISH", "NEUTRAL"]:
+                # Bullish liquidity sweep (swept low and closed back inside range)
+                # Only take BUY if macro trend is Bullish or H1 is Bullish
+                if macro_bull or bias == "BULLISH":
+                    for zone in zones["eql"]:
+                        z_key = f"EQL-{zone['level']:.0f}"
+                        if z_key in consumed_zones:
+                            continue
+
+                        if prev_c["low"] <= zone["level"] and current_candle["close"] > zone["level"]:
                             entry = cmp
                             sl = float(prev_c["low"]) - (atr * 0.15)
                             risk = entry - sl
@@ -286,6 +304,8 @@ def run_smc_backtest(df: pd.DataFrame, starting_capital: float = 100000.0) -> Li
                                     "sl": sl,
                                     "tp1": tp1,
                                     "qty": qty,
+                                    "risk": risk,
+                                    "peak": entry,
                                     "entry_time": current_time,
                                     "be_active": False
                                 }
@@ -293,34 +313,36 @@ def run_smc_backtest(df: pd.DataFrame, starting_capital: float = 100000.0) -> Li
                                 break
 
                 # Bearish liquidity sweep (swept high and closed back inside range)
-                if not active_trade:
+                # Only take SELL if macro trend is Bearish (never short when price is above EMA50!)
+                if not active_trade and (macro_bear and bias in ["BEARISH", "NEUTRAL"]):
                     for zone in zones["eqh"]:
                         z_key = f"EQH-{zone['level']:.0f}"
                         if z_key in consumed_zones:
                             continue
 
                         if prev_c["high"] >= zone["level"] and current_candle["close"] < zone["level"]:
-                            if bias in ["BEARISH", "NEUTRAL"]:
-                                entry = cmp
-                                sl = float(prev_c["high"]) + (atr * 0.15)
-                                risk = sl - entry
-                                if 10.0 <= risk <= 60.0:
-                                    tp1 = entry - (risk * 2.2)
-                                    risk_capital = starting_capital * 0.01
-                                    qty = max(25, min(100, int(risk_capital / risk)))
+                            entry = cmp
+                            sl = float(prev_c["high"]) + (atr * 0.15)
+                            risk = sl - entry
+                            if 10.0 <= risk <= 60.0:
+                                tp1 = entry - (risk * 2.2)
+                                risk_capital = starting_capital * 0.01
+                                qty = max(25, min(100, int(risk_capital / risk)))
 
-                                    active_trade = {
-                                        "trade_type": "SELL",
-                                        "symbol": "NIFTY",
-                                        "entry_price": entry,
-                                        "sl": sl,
-                                        "tp1": tp1,
-                                        "qty": qty,
-                                        "entry_time": current_time,
-                                        "be_active": False
-                                    }
-                                    consumed_zones.add(z_key)
-                                    break
+                                active_trade = {
+                                    "trade_type": "SELL",
+                                    "symbol": "NIFTY",
+                                    "entry_price": entry,
+                                    "sl": sl,
+                                    "tp1": tp1,
+                                    "qty": qty,
+                                    "risk": risk,
+                                    "peak": entry,
+                                    "entry_time": current_time,
+                                    "be_active": False
+                                }
+                                consumed_zones.add(z_key)
+                                break
 
         # End of day square off (15:15 IST)
         if active_trade:
@@ -332,9 +354,74 @@ def run_smc_backtest(df: pd.DataFrame, starting_capital: float = 100000.0) -> Li
     return trades
 
 
+def run_momentum_backtest(df: pd.DataFrame, starting_capital: float = 100000.0) -> List[Dict[str, Any]]:
+    """Runs Momentum EMA (9/21) Crossover + RSI simulation on historical candles."""
+    trades = []
+    ema9 = df["close"].ewm(span=9, adjust=False).mean()
+    ema21 = df["close"].ewm(span=21, adjust=False).mean()
+
+    # RSI (14 period)
+    delta = df["close"].diff()
+    gain = (delta.where(delta > 0, 0)).rolling(14).mean()
+    loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
+    rs = gain / loss
+    rsi = 100 - (100 / (1 + rs))
+
+    active_trade = None
+    for i in range(25, len(df)):
+        c = df.iloc[i]
+        cmp = float(c["close"])
+
+        if active_trade:
+            # Check exit on crossover reversal or SL
+            if active_trade["trade_type"] == "BUY" and (ema9.iloc[i] < ema21.iloc[i] or cmp <= active_trade["sl"]):
+                active_trade["exit_price"] = cmp
+                active_trade["exit_time"] = c.name
+                trades.append(active_trade)
+                active_trade = None
+            elif active_trade["trade_type"] == "SELL" and (ema9.iloc[i] > ema21.iloc[i] or cmp >= active_trade["sl"]):
+                active_trade["exit_price"] = cmp
+                active_trade["exit_time"] = c.name
+                trades.append(active_trade)
+                active_trade = None
+
+        if not active_trade:
+            # Crossover Buy (9 crosses above 21 and RSI not overbought)
+            if ema9.iloc[i-1] <= ema21.iloc[i-1] and ema9.iloc[i] > ema21.iloc[i] and (rsi.iloc[i] < 70 or np.isnan(rsi.iloc[i])):
+                sl = cmp - 40.0
+                qty = 50
+                active_trade = {
+                    "trade_type": "BUY",
+                    "symbol": "NIFTY",
+                    "entry_price": cmp,
+                    "sl": sl,
+                    "qty": qty,
+                    "entry_time": c.name
+                }
+            # Crossover Sell (9 crosses below 21 and RSI not oversold)
+            elif ema9.iloc[i-1] >= ema21.iloc[i-1] and ema9.iloc[i] < ema21.iloc[i] and (rsi.iloc[i] > 30 or np.isnan(rsi.iloc[i])):
+                sl = cmp + 40.0
+                qty = 50
+                active_trade = {
+                    "trade_type": "SELL",
+                    "symbol": "NIFTY",
+                    "entry_price": cmp,
+                    "sl": sl,
+                    "qty": qty,
+                    "entry_time": c.name
+                }
+
+    if active_trade:
+        active_trade["exit_price"] = float(df.iloc[-1]["close"])
+        active_trade["exit_time"] = df.iloc[-1].name
+        trades.append(active_trade)
+
+    return trades
+
+
 def main():
     parser = argparse.ArgumentParser(description="T-Agent Quantitative Backtest Runner")
-    parser.add_argument("--strategy", type=str, default="SMC", choices=["SMC"], help="Strategy to backtest")
+    parser.add_argument("--strategy", type=str, default="SMC", choices=["SMC", "MOMENTUM"], help="Strategy to backtest")
     parser.add_argument("--source", type=str, default="angel", choices=["angel", "simulated"], help="Data source: 'angel' for real SmartAPI candles, 'simulated' for synthetic")
     parser.add_argument("--days", type=int, default=15, help="Number of trading days to simulate/fetch")
     parser.add_argument("--capital", type=float, default=100000.0, help="Starting capital")
@@ -364,7 +451,10 @@ def main():
         df = generate_market_data(days=args.days)
 
     print(f" Executing {args.strategy} with 2% Daily Loss Kill Switch & Trailing Stops...")
-    trades = run_smc_backtest(df, starting_capital=args.capital)
+    if args.strategy == "SMC":
+        trades = run_smc_backtest(df, starting_capital=args.capital)
+    else:
+        trades = run_momentum_backtest(df, starting_capital=args.capital)
 
     engine = BacktestEngine(starting_capital=args.capital, slippage_pct=0.0008, commission_per_order=20.0)
     metrics = engine.evaluate_trades(trades)
