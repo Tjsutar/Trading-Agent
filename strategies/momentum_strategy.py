@@ -161,8 +161,6 @@ class MomentumStrategy:
         # Pre-flight Gatekeeper checks
         if not self.gatekeeper.check_max_daily_loss(0):
             return
-        if self.gatekeeper.is_blackout_period():
-            return
 
         logger.info("Starting continuous monitor for EMA 9/21 crossover...")
 
@@ -186,7 +184,9 @@ class MomentumStrategy:
 
                 # 3. Look for Entry Signals if flat
                 if not self.active_position:
-                    if Config.STOP_ON_FIRST_LOSS and self.had_loss_today:
+                    if self.gatekeeper.is_blackout_period():
+                        logger.info("⏳ Blackout Period (11:30 - 13:00 IST). Waiting for afternoon liquidity window...")
+                    elif Config.STOP_ON_FIRST_LOSS and self.had_loss_today:
                         logger.info("🛑 Stop-on-1st-Loss active! Capital protected after today's loss. Sitting in cash.")
                     elif self.daily_trade_count >= self.max_trades_per_day:
                         logger.info(f"Daily trade limit reached ({self.daily_trade_count}/{self.max_trades_per_day}). Waiting for next session.")

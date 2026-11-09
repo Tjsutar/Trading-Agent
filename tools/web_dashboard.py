@@ -3,11 +3,12 @@ T-Agent Visual Web Dashboard & Telemetry Server (BRD FR-MR-004).
 Built with Python's standard http.server for zero-dependency local execution.
 Provides real-time dark-mode dashboard displaying:
   1. System Health & Broker Status (Client T69288, Session Resiliency)
-  2. Financial Metrics (Available Cash, Daily Realized P&L, Kill Switch status)
-  3. Active Positions with Breakeven & Trailing Stop badges
-  4. Real-time Generated Signals (SMC, Momentum)
-  5. Institutional Audit Trail
-  6. Emergency Kill Switch Control
+  2. Financial Metrics (Daily Realized P&L, Win Rate, Capital Tier, Loss Cap)
+  3. Today's Completed Trades History with entry/exit prices, net P&L, and reasons
+  4. Active Positions with Breakeven & Trailing Stop badges
+  5. Real-time Generated Signals (SMC, Momentum)
+  6. Institutional Audit Trail
+  7. Emergency Kill Switch Control
 """
 import sys
 import os
@@ -109,7 +110,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     }
     .grid-4 {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
       gap: 16px;
       margin-bottom: 24px;
     }
@@ -182,6 +183,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     .tag-sell { background: rgba(239, 68, 68, 0.15); color: var(--red); }
     .tag-active { background: rgba(59, 130, 246, 0.15); color: var(--accent); }
     .tag-warn { background: rgba(245, 158, 11, 0.15); color: var(--amber); }
+    .tag-purple { background: rgba(139, 92, 246, 0.15); color: var(--purple); }
     .audit-item {
       display: flex;
       gap: 12px;
@@ -207,6 +209,22 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       transition: background 0.2s;
     }
     .btn-danger:hover { background: #b91c1c; }
+    .badge-win {
+      background: rgba(16, 185, 129, 0.2);
+      color: var(--green);
+      font-weight: 700;
+      padding: 4px 10px;
+      border-radius: 6px;
+      font-family: 'JetBrains Mono', monospace;
+    }
+    .badge-loss {
+      background: rgba(239, 68, 68, 0.2);
+      color: var(--red);
+      font-weight: 700;
+      padding: 4px 10px;
+      border-radius: 6px;
+      font-family: 'JetBrains Mono', monospace;
+    }
   </style>
 </head>
 <body>
@@ -215,11 +233,12 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       <h1>T-Agent Institutional Telemetry</h1>
       <span class="badge">Angel One SmartAPI</span>
       <span class="badge" style="background: rgba(139, 92, 246, 0.15); color: var(--purple);">Client: T69288</span>
+      <span class="badge" style="background: rgba(16, 185, 129, 0.15); color: var(--green);">Path A: ₹15,000 Tier</span>
     </div>
     <div style="display: flex; gap: 12px; align-items: center;">
       <div class="status-pill">
         <div class="pulse-dot"></div>
-        <span>Live Engine Active</span>
+        <span id="engine-status">WebSocket 2.0 Streaming</span>
       </div>
       <button class="btn-danger" onclick="triggerKillSwitch()">Emergency Kill Switch</button>
     </div>
@@ -229,23 +248,75 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     <div class="card">
       <div class="card-title">Daily Realized P&L</div>
       <div class="card-value" id="daily-pnl" style="color: var(--green);">+₹0.00</div>
-      <div class="card-sub">2% Loss Cap: -₹2,000.00</div>
+      <div class="card-sub" id="pnl-sub">Virtual Capital: ₹15,000.00</div>
     </div>
     <div class="card">
-      <div class="card-title">Available Cash Margin</div>
-      <div class="card-value" id="cash-margin">₹855.40</div>
-      <div class="card-sub">RMS Health Check: ✅ Adequate</div>
+      <div class="card-title">Today's Win Rate</div>
+      <div class="card-value" id="win-rate" style="color: var(--green);">0%</div>
+      <div class="card-sub" id="win-rate-sub">0 Wins / 0 Losses</div>
     </div>
     <div class="card">
       <div class="card-title">Active Positions</div>
-      <div class="card-value" id="active-positions-count">0</div>
-      <div class="card-sub">Breakeven & TSL Monitored</div>
+      <div class="card-value" id="active-positions-count">0 Open</div>
+      <div class="card-sub">Dynamic TSL Monitored</div>
     </div>
     <div class="card">
-      <div class="card-title">Nifty 50 Spot</div>
-      <div class="card-value" id="nifty-spot">₹24,986.40</div>
-      <div class="card-sub">Live Market CMP</div>
+      <div class="card-title">Safety & Loss Cap</div>
+      <div class="card-value" style="color: var(--amber);">-₹700.00</div>
+      <div class="card-sub">Stop-on-1st-Loss Active 🛡️</div>
     </div>
+  </div>
+
+  <!-- Today's Executed Trades & P&L History (Prominent) -->
+  <div class="card" style="margin-bottom: 24px;">
+    <div class="panel-header">
+      <h2>📊 Today's Completed Trades & P&L History</h2>
+      <span class="card-sub" id="closed-trades-count" style="font-weight: 600; color: var(--green);">0 trades</span>
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th>Execution Time</th>
+          <th>Order ID</th>
+          <th>Contract Symbol</th>
+          <th>Side</th>
+          <th>Qty</th>
+          <th>Entry Price</th>
+          <th>Exit Price</th>
+          <th>Return (%)</th>
+          <th>Net P&L (₹)</th>
+          <th>Outcome</th>
+        </tr>
+      </thead>
+      <tbody id="closed-trades-tbody">
+        <tr><td colspan="10" style="text-align: center; color: var(--text-muted); padding: 24px;">No closed trades today yet.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Active Positions Table -->
+  <div class="card" style="margin-bottom: 24px;">
+    <div class="panel-header">
+      <h2>💼 Active Positions & Dynamic Trailing Stop</h2>
+      <span class="card-sub" id="open-positions-subtitle">Zero Open Risk</span>
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th>Order ID</th>
+          <th>Symbol</th>
+          <th>Side</th>
+          <th>Qty</th>
+          <th>Entry Price</th>
+          <th>Current SL</th>
+          <th>Breakeven Status</th>
+          <th>Trailing Stop Status</th>
+        </tr>
+      </thead>
+      <tbody id="positions-tbody">
+        <tr><td colspan="8" style="text-align: center; color: var(--text-muted); padding: 24px;">No open positions currently active.</td></tr>
+      </tbody>
+    </table>
   </div>
 
   <div class="grid-2">
@@ -266,7 +337,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
           </tr>
         </thead>
         <tbody id="signals-tbody">
-          <tr><td colspan="6" style="text-align: center; color: var(--text-muted); padding: 24px;">No signals generated yet. Run a strategy to see signals.</td></tr>
+          <tr><td colspan="6" style="text-align: center; color: var(--text-muted); padding: 24px;">No signals generated yet.</td></tr>
         </tbody>
       </table>
     </div>
@@ -274,36 +345,12 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     <div class="card">
       <div class="panel-header">
         <h2>🛡️ Institutional Audit & Safety Trail</h2>
-        <span class="card-sub">Last 8 events</span>
+        <span class="card-sub">Real-time log stream</span>
       </div>
       <div id="audit-list">
         <!-- Injected via JS -->
       </div>
     </div>
-  </div>
-
-  <div class="card">
-    <div class="panel-header">
-      <h2>💼 Active Trade Management (Trailing SL & Breakeven)</h2>
-      <span class="card-sub">Superhuman Position Lifecycle</span>
-    </div>
-    <table>
-      <thead>
-        <tr>
-          <th>Order ID</th>
-          <th>Symbol</th>
-          <th>Side</th>
-          <th>Qty</th>
-          <th>Entry Price</th>
-          <th>Current SL</th>
-          <th>Breakeven</th>
-          <th>Trailing Stop</th>
-        </tr>
-      </thead>
-      <tbody id="positions-tbody">
-        <tr><td colspan="8" style="text-align: center; color: var(--text-muted); padding: 24px;">No open positions currently active.</td></tr>
-      </tbody>
-    </table>
   </div>
 
   <script>
@@ -312,15 +359,71 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         const res = await fetch('/api/status');
         const data = await res.json();
 
-        // Update P&L
+        // 1. Update Daily Realized P&L
         const pnlEl = document.getElementById('daily-pnl');
-        pnlEl.textContent = (data.daily_pnl >= 0 ? '+₹' : '-₹') + Math.abs(data.daily_pnl).toFixed(2);
-        pnlEl.style.color = data.daily_pnl >= 0 ? 'var(--green)' : 'var(--red)';
+        const isPos = data.daily_pnl >= 0;
+        pnlEl.textContent = (isPos ? '+₹' : '-₹') + Math.abs(data.daily_pnl).toFixed(2);
+        pnlEl.style.color = isPos ? 'var(--green)' : 'var(--red)';
 
-        document.getElementById('active-positions-count').textContent = data.open_trades.length;
+        // 2. Update Win Rate
+        const winEl = document.getElementById('win-rate');
+        winEl.textContent = data.win_rate + '%';
+        winEl.style.color = data.win_rate >= 50 ? 'var(--green)' : (data.total_trades === 0 ? 'var(--text-muted)' : 'var(--red)');
+        document.getElementById('win-rate-sub').textContent = `${data.wins} Win / ${data.losses} Loss (${data.total_trades} Trade${data.total_trades === 1 ? '' : 's'})`;
+
+        // 3. Update Active Positions Count
+        document.getElementById('active-positions-count').textContent = data.open_trades.length + ' Open';
+
+        // 4. Render Today's Closed Trades History
+        const closedTbody = document.getElementById('closed-trades-tbody');
+        document.getElementById('closed-trades-count').textContent = `${data.closed_trades.length} trade(s) completed today`;
+        if (data.closed_trades.length > 0) {
+          closedTbody.innerHTML = data.closed_trades.map(t => {
+            const isWin = t.pnl >= 0;
+            const pnlColor = isWin ? 'var(--green)' : 'var(--red)';
+            const sign = isWin ? '+' : '';
+            return `
+              <tr>
+                <td style="color:var(--text-muted); font-size:12px; font-family:'JetBrains Mono'">${t.entry_time} ➔ ${t.exit_time}</td>
+                <td style="font-family:'JetBrains Mono'; font-size:11px; color:var(--text-muted);">${t.order_id}</td>
+                <td><strong style="color:var(--text);">${t.symbol}</strong></td>
+                <td><span class="tag tag-${t.side.toLowerCase()}">${t.side}</span></td>
+                <td style="font-family:'JetBrains Mono'">${t.qty}</td>
+                <td style="font-family:'JetBrains Mono'">₹${(t.entry || 0).toFixed(2)}</td>
+                <td style="font-family:'JetBrains Mono'">₹${(t.exit || 0).toFixed(2)}</td>
+                <td style="font-family:'JetBrains Mono'; color:${pnlColor}; font-weight:600;">${sign}${t.roi_pct}%</td>
+                <td style="font-family:'JetBrains Mono'; font-weight:700; color:${pnlColor}; font-size:14px;">${sign}₹${t.pnl.toFixed(2)}</td>
+                <td><span class="${isWin ? 'badge-win' : 'badge-loss'}">${isWin ? '🟢 WIN' : '🔴 LOSS'}</span></td>
+              </tr>
+            `;
+          }).join('');
+        } else {
+          closedTbody.innerHTML = '<tr><td colspan="10" style="text-align: center; color: var(--text-muted); padding: 24px;">No closed trades today yet.</td></tr>';
+        }
+
+        // 5. Render Active Positions
+        const posTbody = document.getElementById('positions-tbody');
+        if (data.open_trades.length > 0) {
+          document.getElementById('open-positions-subtitle').textContent = 'Live Market Active Trade';
+          posTbody.innerHTML = data.open_trades.map(p => `
+            <tr>
+              <td style="font-family:'JetBrains Mono'; font-size:11px;">${p.order_id}</td>
+              <td><strong>${p.symbol}</strong></td>
+              <td><span class="tag tag-${p.side.toLowerCase()}">${p.side}</span></td>
+              <td>${p.qty}</td>
+              <td style="font-family:'JetBrains Mono'">₹${(p.entry || 0).toFixed(2)}</td>
+              <td style="font-family:'JetBrains Mono'">₹${(p.sl || 0).toFixed(2)}</td>
+              <td><span class="tag ${p.be ? 'tag-buy' : 'tag-warn'}">${p.be ? 'Locked 🔒 (+2 pts)' : 'Pending (+10 pts)'}</span></td>
+              <td><span class="tag ${p.tsl ? 'tag-buy' : 'tag-purple'}">${p.tsl ? 'Trailing 🚀 (-8 pts)' : 'Active'}</span></td>
+            </tr>
+          `).join('');
+        } else {
+          document.getElementById('open-positions-subtitle').textContent = 'Zero Open Risk (Sitting in Cash)';
+          posTbody.innerHTML = '<tr><td colspan="8" style="text-align: center; color: var(--text-muted); padding: 24px;">No open positions currently active. Capital 100% protected.</td></tr>';
+        }
+
+        // 6. Update Signals
         document.getElementById('signals-count').textContent = data.signals.length + ' signals';
-
-        // Update Signals
         const sigTbody = document.getElementById('signals-tbody');
         if (data.signals.length > 0) {
           sigTbody.innerHTML = data.signals.map(s => `
@@ -330,12 +433,12 @@ HTML_TEMPLATE = """<!DOCTYPE html>
               <td><span class="tag tag-${s.type.toLowerCase()}">${s.type}</span></td>
               <td style="font-family:'JetBrains Mono'">₹${(s.entry || 0).toFixed(2)}</td>
               <td style="font-family:'JetBrains Mono'">1:${s.rr || '2.0'}</td>
-              <td><span class="tag ${s.executed ? 'tag-buy' : 'tag-warn'}">${s.executed ? 'Executed' : 'Filtered'}</span></td>
+              <td><span class="tag ${s.executed ? 'tag-buy' : 'tag-warn'}">${s.executed ? 'Executed ⚡' : 'Filtered 🛡️'}</span></td>
             </tr>
           `).join('');
         }
 
-        // Update Audit
+        // 7. Update Audit Log
         const auditList = document.getElementById('audit-list');
         if (data.audits.length > 0) {
           auditList.innerHTML = data.audits.map(a => `
@@ -344,23 +447,6 @@ HTML_TEMPLATE = """<!DOCTYPE html>
               <span class="tag ${a.severity === 'CRITICAL' ? 'tag-sell' : (a.severity === 'WARNING' ? 'tag-warn' : 'tag-active')}">${a.severity}</span>
               <span class="audit-msg"><strong>${a.type}</strong>: ${a.message}</span>
             </div>
-          `).join('');
-        }
-
-        // Update Positions
-        const posTbody = document.getElementById('positions-tbody');
-        if (data.open_trades.length > 0) {
-          posTbody.innerHTML = data.open_trades.map(p => `
-            <tr>
-              <td style="font-family:'JetBrains Mono'">${p.order_id}</td>
-              <td><strong>${p.symbol}</strong></td>
-              <td><span class="tag tag-${p.side.toLowerCase()}">${p.side}</span></td>
-              <td>${p.qty}</td>
-              <td style="font-family:'JetBrains Mono'">₹${(p.entry || 0).toFixed(2)}</td>
-              <td style="font-family:'JetBrains Mono'">₹${(p.sl || 0).toFixed(2)}</td>
-              <td><span class="tag ${p.be ? 'tag-buy' : 'tag-warn'}">${p.be ? 'Active 🔒' : 'Inactive'}</span></td>
-              <td><span class="tag ${p.tsl ? 'tag-buy' : 'tag-warn'}">${p.tsl ? 'Trailing 🚀' : 'Standard'}</span></td>
-            </tr>
           `).join('');
         }
       } catch (err) {
@@ -402,23 +488,49 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
             with get_db_session() as session:
                 daily_pnl = TradeRepository.get_daily_realized_pnl()
                 trades = session.query(Trade).filter(Trade.status == "OPEN").all()
+                closed_trades = session.query(Trade).filter(Trade.status == "CLOSED").order_by(Trade.id.desc()).limit(20).all()
                 signals = session.query(Signal).order_by(Signal.id.desc()).limit(10).all()
                 audits = session.query(AuditLog).order_by(AuditLog.id.desc()).limit(8).all()
 
+                wins = sum(1 for t in closed_trades if (t.pnl or 0) > 0)
+                losses = sum(1 for t in closed_trades if (t.pnl or 0) < 0)
+                total = len(closed_trades)
+                win_rate = round((wins / total * 100), 1) if total > 0 else 0.0
+
                 payload = {
                     "daily_pnl": daily_pnl,
+                    "wins": wins,
+                    "losses": losses,
+                    "total_trades": total,
+                    "win_rate": win_rate,
                     "open_trades": [
                         {
                             "order_id": t.order_id,
                             "symbol": t.symbol,
                             "side": t.trade_type,
-                            "qty": t.lot_size,
+                            "qty": int(t.lot_size),
                             "entry": t.entry_price,
                             "sl": t.current_stop_loss,
                             "be": t.breakeven_activated,
                             "tsl": t.trailing_sl_activated
                         }
                         for t in trades
+                    ],
+                    "closed_trades": [
+                        {
+                            "id": t.id,
+                            "order_id": t.order_id,
+                            "symbol": t.symbol,
+                            "side": t.trade_type,
+                            "qty": int(t.lot_size),
+                            "entry": t.entry_price,
+                            "exit": t.exit_price,
+                            "pnl": round(t.pnl, 2) if t.pnl is not None else 0.0,
+                            "entry_time": t.entry_time.strftime("%H:%M:%S") if t.entry_time else "--",
+                            "exit_time": t.exit_time.strftime("%H:%M:%S") if t.exit_time else "--",
+                            "roi_pct": round(((t.exit_price - t.entry_price) / t.entry_price) * 100, 1) if (t.entry_price and t.exit_price) else 0.0
+                        }
+                        for t in closed_trades
                     ],
                     "signals": [
                         {
@@ -486,4 +598,3 @@ def run_dashboard_server(port: int = 8080):
 if __name__ == "__main__":
     port = int(sys.argv[1]) if len(sys.argv) > 1 else 8080
     run_dashboard_server(port)
-

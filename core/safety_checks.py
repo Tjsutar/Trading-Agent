@@ -222,7 +222,9 @@ class SafetyGatekeeper:
         return lots * lot_size_multiplier
 
     def is_blackout_period(self) -> bool:
-        """Rule: No new trades between 11:30 AM - 01:00 PM IST."""
+        """Rule: No new trades between 11:30 AM - 01:00 PM IST (Enforced in Live Mode)."""
+        if self.is_paper:
+            return False
         now = datetime.datetime.now().time()
         start = datetime.time(11, 30)
         end = datetime.time(13, 0)
