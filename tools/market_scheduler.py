@@ -20,6 +20,7 @@ from typing import Optional
 # Add project root to sys.path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from config.settings import Config
 from core.session_manager import SessionManager
 from utils.token_lookup import TokenLookup
 from strategies.momentum_strategy import MomentumStrategy
@@ -102,7 +103,8 @@ class MarketScheduler:
 
         init_db()
 
-        is_mock = self.mode == "paper"
+        has_creds = all([Config.API_KEY, Config.CLIENT_ID, Config.PASSWORD, Config.TOTP_SECRET])
+        is_mock = not has_creds
         self.session_mgr = SessionManager(is_mock=is_mock)
         if not self.session_mgr.connect():
             logger.critical("Pre-flight failed: Broker authentication unsuccessful.")
@@ -145,7 +147,7 @@ class MarketScheduler:
         stream = self.session_mgr.get_market_stream()
 
         # Initialize Strategy with WebSocket streaming feed
-        dry_run = self.mode == "dry-run"
+        dry_run = self.mode in ["dry-run", "paper"]
         self.bot = MomentumStrategy(
             api=api,
             token_loader=self.token_loader,

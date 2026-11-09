@@ -31,13 +31,13 @@ logger = get_logger("MomentumStrategy")
 class MomentumStrategy:
     STATE_FILE = "trade_state.json"
 
-    def __init__(self, api, token_loader, dry_run: bool = False, starting_capital: float = 5000.0, market_stream: Optional[Any] = None):
+    def __init__(self, api, token_loader, dry_run: bool = False, starting_capital: float = 15000.0, market_stream: Optional[Any] = None):
         self.api = api
         self.token_loader = token_loader
         self.dry_run = dry_run
         self.starting_capital = starting_capital
         self.market_stream = market_stream
-        self.gatekeeper = SafetyGatekeeper(self.api, starting_capital=starting_capital)
+        self.gatekeeper = SafetyGatekeeper(self.api, starting_capital=starting_capital, is_paper=dry_run)
         self.data_fetcher = DataFetcher(self.api)
         self.data_failure_count = 0
         self.active_position = None
@@ -220,7 +220,8 @@ class MomentumStrategy:
 
     def analyze_market_trend(self):
         """Fetches latest 5-min candles and computes EMA 9, 21, 50, and RSI."""
-        if self.dry_run or (hasattr(self.api, 'api_key') and self.api.api_key is None):
+        is_mock_api = hasattr(self.api, 'api_key') and self.api.api_key is None
+        if is_mock_api and not self.market_stream:
             df = self.get_mock_df()
         elif self.market_stream:
             stream_df = self.market_stream.get_nifty_candles()

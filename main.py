@@ -41,12 +41,31 @@ def run_bot():
     elif args.paper:
         print("\n>>> [System] STARTING IN PAPER TRADING MODE 📄")
         print("    (Realistic Simulated Execution with ₹15,000 Capital & Database Persistence)")
-        paper_api = PaperBroker(starting_cash=15000.0)
-        session_mgr = SessionManager(is_mock=True, mock_instance=paper_api)
-        session_mgr.connect()
-        api = session_mgr.get_api()
-        loader = MockTokenLookup()
-        loader.load_scrip_master()
+        args.dry_run = True  # Guarantee ZERO real orders sent to broker
+
+        # Check if Angel One credentials exist in environment to provide LIVE market data stream
+        has_creds = all([Config.API_KEY, Config.CLIENT_ID, Config.PASSWORD, Config.TOTP_SECRET])
+        live_connected = False
+        if has_creds:
+            print(">>> [Paper] Connecting to Angel One Live Market Stream for authentic live ticks...")
+            session_mgr = SessionManager(is_mock=False)
+            if session_mgr.connect():
+                session_mgr.start_renewal_daemon(interval_seconds=60)
+                api = session_mgr.get_api()
+                loader = TokenLookup()
+                loader.load_scrip_master()
+                live_connected = True
+                print("✅ [Paper] Authenticated with Angel One. Live ticks & Option chain connected in Paper Mode (0 real risk).")
+            else:
+                print("⚠️ [Paper] Broker login failed. Falling back to offline PaperBroker.")
+
+        if not live_connected:
+            paper_api = PaperBroker(starting_cash=15000.0)
+            session_mgr = SessionManager(is_mock=True, mock_instance=paper_api)
+            session_mgr.connect()
+            api = session_mgr.get_api()
+            loader = MockTokenLookup()
+            loader.load_scrip_master()
     else:
         # 1. Initialize Connection via SessionManager
         if args.dry_run:
@@ -90,7 +109,7 @@ def run_bot():
         bot = ORBStrategy(api, loader, dry_run=args.dry_run)
     elif args.strategy == "MOMENTUM":
         print(f"\n>>> [Strategy] Selected: Momentum (EMA Crossover) ⚡")
-        bot = MomentumStrategy(api, loader, dry_run=args.dry_run, market_stream=market_stream)
+        bot = MomentumStrategy(api, loader, dry_run=args.dry_run, starting_capital=15000.0, market_stream=market_stream)
     elif args.strategy == "VWAP":
         print(f"\n>>> [Strategy] Selected: VWAP Institutional Trend (Pro Mode) 🚀")
         bot = VWAPStrategy(api, loader, dry_run=args.dry_run)

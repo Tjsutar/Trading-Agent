@@ -21,16 +21,18 @@ logger = get_logger("SafetyGatekeeper")
 
 
 class SafetyGatekeeper:
-    def __init__(self, api, starting_capital: float = 100000.0, max_daily_loss_pct: float = 0.02):
+    def __init__(self, api, starting_capital: float = 100000.0, max_daily_loss_pct: float = 0.02, is_paper: bool = False):
         """
         :param api: Broker API instance (SmartAPI or Mock)
         :param starting_capital: Initial capital base (default ₹1,00,000)
         :param max_daily_loss_pct: Maximum daily drawdown cap (default 2% = ₹2,000)
+        :param is_paper: If True, evaluates margins against virtual capital instead of broker RMS cash.
         """
         self.api = api
         self.starting_capital = starting_capital
         self.max_daily_loss_pct = max_daily_loss_pct
         self.max_daily_loss_amount = -(starting_capital * max_daily_loss_pct)
+        self.is_paper = is_paper
         self.cached_rms = None
         self.last_rms_time = 0
         self.kill_switch_active = False
@@ -59,6 +61,15 @@ class SafetyGatekeeper:
 
     def check_funds(self, required_margin_per_lot: float = 150000.0) -> bool:
         """Rule: Available Cash > Required Margin * 1.1 (10% Buffer)."""
+        if self.is_paper:
+            required_total = required_margin_per_lot * 1.1
+            if self.starting_capital >= required_total:
+                logger.info(f"Gatekeeper Margin Check (Paper): Virtual ₹{self.starting_capital:,.2f} >= Required ₹{required_total:,.2f}")
+                return True
+            else:
+                logger.warning(f"Gatekeeper Margin Low (Paper): Virtual ₹{self.starting_capital:,.2f} < Required ₹{required_total:,.2f}")
+                return False
+
         try:
             if time.time() - self.last_rms_time < 10 and self.cached_rms:
                 limit = self.cached_rms
@@ -91,6 +102,14 @@ class SafetyGatekeeper:
 
     def check_trade_margin(self, estimated_cost: float) -> bool:
         """Rule: Available Cash > Estimated Cost with 10% buffer."""
+        if self.is_paper:
+            if self.starting_capital >= estimated_cost:
+                logger.info(f"Gatekeeper Margin Check (Paper): Virtual ₹{self.starting_capital:,.2f} >= Cost ₹{estimated_cost:,.2f}")
+                return True
+            else:
+                logger.warning(f"Gatekeeper Insufficient Paper Margin: Virtual ₹{self.starting_capital:,.2f} < Cost ₹{estimated_cost:,.2f}")
+                return False
+
         try:
             if time.time() - self.last_rms_time < 10 and self.cached_rms:
                 limit = self.cached_rms
