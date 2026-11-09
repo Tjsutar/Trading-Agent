@@ -457,3 +457,4 @@ class ExpiryScalpStrategy:
         highs = closes + 5.0
         lows = closes - 5.0
         return pd.DataFrame({'close': closes, 'high': highs, 'low': lows}, index=dates)
+
