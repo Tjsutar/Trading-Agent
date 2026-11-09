@@ -129,8 +129,8 @@ def run_bot():
     # 4. Input Trade Parameters
     print("\n--- NIFTY OPTION TRADER ---")
     
-    # Calculate Dynamic Weekly Expiry (Next Tuesday)
-    expiry = get_next_weekly_expiry()
+    # Calculate Dynamic Weekly Expiry (Active nearest expiry from scrip master)
+    expiry = get_next_weekly_expiry(loader)
     print(f">>> [Setup] Target Expiry: {expiry}")
     
     # 5. Execute Strategy

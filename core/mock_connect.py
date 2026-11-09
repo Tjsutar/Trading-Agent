@@ -80,6 +80,9 @@ class MockSmartConnect:
 class MockTokenLookup:
     def load_scrip_master(self):
         print(">>> [Mock] Skipping Scrip Master download.")
+
+    def get_active_nifty_expiry(self):
+        return "09NOV2026"
     
     def get_token(self, symbol_name, expiry_date, strike, option_type):
         # Return dummy values

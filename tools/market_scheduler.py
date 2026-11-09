@@ -157,7 +157,7 @@ class MarketScheduler:
         )
 
         from utils.expiry_calculator import get_next_weekly_expiry
-        expiry = get_next_weekly_expiry()
+        expiry = get_next_weekly_expiry(self.token_loader)
 
         if test_now:
             logger.info("Running 1 test cycle (outside market hours)...")

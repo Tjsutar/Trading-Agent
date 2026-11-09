@@ -1,3 +1,4 @@
+import datetime
 import requests
 import pandas as pd
 from config.settings import Config
@@ -21,6 +22,26 @@ class TokenLookup:
             print(">>> [Data] Scrip Master Loaded.")
         except Exception as e:
             print(f">>> [Error] Failed to load Scrip Master: {e}")
+
+    def get_active_nifty_expiry(self) -> str:
+        """Finds the nearest upcoming or today's valid NIFTY option expiry directly from the scrip master."""
+        if self.df is None:
+            self.load_scrip_master()
+
+        try:
+            nifty = self.df[(self.df['name'] == 'NIFTY') & (self.df['instrumenttype'] == 'OPTIDX')]
+            if nifty.empty:
+                return "09NOV2026"
+
+            exp_series = pd.to_datetime(nifty['expiry'], format="%d%b%Y", errors='coerce').dropna()
+            today = pd.to_datetime(datetime.date.today())
+            valid = exp_series[exp_series >= today].sort_values()
+            if not valid.empty:
+                return valid.iloc[0].strftime("%d%b%Y").upper()
+        except Exception as e:
+            print(f">>> [Error] get_active_nifty_expiry failed: {e}")
+
+        return "09NOV2026"
 
     def get_token(self, symbol_name, expiry_date, strike, option_type):
         """

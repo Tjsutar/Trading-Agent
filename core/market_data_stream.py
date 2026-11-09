@@ -216,8 +216,8 @@ class MarketDataStream:
             if not token or raw_ltp is None:
                 return
 
-            # Angel One binary feed transmits prices in paise (1 INR = 100 paise)
-            ltp = float(raw_ltp) / 100.0 if raw_ltp > 10000 else float(raw_ltp)
+            # Angel One binary feed transmits all prices in paise (1 INR = 100 paise)
+            ltp = float(raw_ltp) / 100.0
             now = datetime.now()
 
             with self._lock:

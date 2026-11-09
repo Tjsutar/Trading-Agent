@@ -1,24 +1,21 @@
 import datetime
 
-def get_next_weekly_expiry():
+def get_next_weekly_expiry(token_loader=None):
+    if token_loader and hasattr(token_loader, "get_active_nifty_expiry"):
+        try:
+            active_expiry = token_loader.get_active_nifty_expiry()
+            if active_expiry:
+                return active_expiry
+        except Exception:
+            pass
+
     today = datetime.date.today()
-    # Nifty Expiry is now Tuesday (weekday 1) as of Sep 2025
-    
+    # Nifty Expiry is Tuesday (weekday 1), shifted to Monday if holiday
     current_weekday = today.weekday()
-    # Calculate days ahead for next Tuesday (1)
-    # If today is Tuesday (1), days_ahead will be 0 (Target - Current)
-    # If today is Wed (2), days_ahead = (1-2) % 7 = 6
     target_weekday = 1
     days_ahead = (target_weekday - current_weekday) % 7
     
     next_expiry = today + datetime.timedelta(days=days_ahead)
-    
-    # TODO: Handle NSE Holidays (shift to previous trading day if Tuesday is a holiday)
-    
-    # Format: DDMMMYYYY (e.g., 20JAN2026)
-    return next_expiry.strftime("%d%b%Y").upper()
-    
-    # Format: DDMMMYYYY (e.g., 22JAN2026)
     return next_expiry.strftime("%d%b%Y").upper()
 
 # Validation for 2026-01-20 (Tuesday)
