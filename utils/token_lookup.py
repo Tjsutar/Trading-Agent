@@ -1,3 +1,4 @@
+import os
 import datetime
 import requests
 import pandas as pd
@@ -8,18 +9,28 @@ class TokenLookup:
         self.df = None
 
     def load_scrip_master(self):
-        """Downloads the huge JSON file from Angel One once"""
+        """Loads scrip master from local cache if available, otherwise downloads and caches."""
+        cache_file = os.path.join("data", "OpenAPIScripMaster.json")
+        if os.path.exists(cache_file) and os.path.getsize(cache_file) > 10_000_000:
+            try:
+                print(">>> [Data] Loading Scrip Master from local disk cache...")
+                self.df = pd.read_json(cache_file)
+                self.df['strike'] = pd.to_numeric(self.df['strike'], errors='coerce')
+                print(">>> [Data] Scrip Master Loaded from Cache.")
+                return
+            except Exception as e:
+                print(f">>> [Warning] Could not parse local cache: {e}")
+
         print(">>> [Data] Downloading Scrip Master (This may take 10s)...")
         try:
-            response = requests.get(Config.SCRIP_MASTER_URL)
-            data = response.json()
-            self.df = pd.DataFrame(data)
-            
-            # Optimization: Convert 'strike' to float once for accurate comparison
-            # Angel One 'strike' is in paise (e.g. 2300000.00)
-            self.df['strike'] = pd.to_numeric(self.df['strike'], errors='coerce')
-            
-            print(">>> [Data] Scrip Master Loaded.")
+            response = requests.get(Config.SCRIP_MASTER_URL, timeout=60)
+            if response.status_code == 200:
+                with open(cache_file, "wb") as f:
+                    f.write(response.content)
+                data = response.json()
+                self.df = pd.DataFrame(data)
+                self.df['strike'] = pd.to_numeric(self.df['strike'], errors='coerce')
+                print(">>> [Data] Scrip Master Loaded and Cached.")
         except Exception as e:
             print(f">>> [Error] Failed to load Scrip Master: {e}")
 

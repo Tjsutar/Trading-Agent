@@ -15,6 +15,7 @@ import time
 from typing import Optional, Dict, Any
 from utils.rate_limiter import market_data_limiter
 from db.repository import TradeRepository
+from config.settings import Config
 from utils.logger import get_logger
 
 logger = get_logger("SafetyGatekeeper")
@@ -31,7 +32,7 @@ class SafetyGatekeeper:
         self.api = api
         self.starting_capital = starting_capital
         self.max_daily_loss_pct = max_daily_loss_pct
-        self.max_daily_loss_amount = -(starting_capital * max_daily_loss_pct)
+        self.max_daily_loss_amount = getattr(Config, "DAILY_LOSS_CAP", -250.0)
         self.is_paper = is_paper
         self.cached_rms = None
         self.last_rms_time = 0

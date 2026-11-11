@@ -274,9 +274,9 @@ HTML_TEMPLATE = """<!DOCTYPE html>
       <div class="card-sub">Max 1 Active at a Time 🛡️</div>
     </div>
     <div class="card">
-      <div class="card-title">Daily Profit Target</div>
-      <div class="card-value" id="target-profit" style="color: var(--green);">₹5,000.00</div>
-      <div class="card-sub" id="target-profit-sub" style="color: var(--green);">Next Trade Allowed on Win 🎯</div>
+      <div class="card-title">Daily Loss Cap / Target</div>
+      <div class="card-value" id="target-profit" style="color: var(--green);">₹5,000 / -₹250</div>
+      <div class="card-sub" id="target-profit-sub" style="color: var(--green);">Trading Active (Loss Cap: -₹250) 🎯</div>
     </div>
   </div>
 
@@ -383,17 +383,19 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         const targetPct = Math.min(100, (data.daily_pnl / targetVal) * 100).toFixed(1);
         document.getElementById('pnl-sub').textContent = `Target: ₹${targetVal.toFixed(2)} (${targetPct}% achieved)`;
 
-        // Update Profit Target Subtitle
+        // Update Profit Target & Loss Cap Subtitle
         const targetSubEl = document.getElementById('target-profit-sub');
         if (targetSubEl) {
+          const lossCap = data.daily_loss_cap || -250;
           if (data.daily_pnl >= targetVal) {
             targetSubEl.innerHTML = '🎉 Target Reached! Locking gains 🔒';
             targetSubEl.style.color = 'var(--green)';
-          } else if (data.had_loss_today) {
-            targetSubEl.innerHTML = '🛑 Loss Taken: Capital Protected';
+          } else if (data.daily_pnl <= lossCap) {
+            targetSubEl.innerHTML = `🛑 Cap Hit (≤ ₹${lossCap}): Sitting in Cash`;
             targetSubEl.style.color = 'var(--red)';
           } else {
-            targetSubEl.innerHTML = '✅ Next Trade Allowed on Win 🎯';
+            const buffer = (data.daily_pnl - lossCap).toFixed(2);
+            targetSubEl.innerHTML = `✅ Trading Active (₹${buffer} buffer to -₹250 cap)`;
             targetSubEl.style.color = 'var(--green)';
           }
         }
@@ -536,8 +538,9 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
                 payload = {
                     "daily_pnl": daily_pnl,
                     "daily_profit_target": Config.DAILY_PROFIT_TARGET,
+                    "daily_loss_cap": Config.DAILY_LOSS_CAP,
                     "had_loss_today": had_loss,
-                    "next_trade_allowed": (not had_loss) and (daily_pnl < Config.DAILY_PROFIT_TARGET) and (len(trades) == 0),
+                    "next_trade_allowed": (daily_pnl > Config.DAILY_LOSS_CAP) and (daily_pnl < Config.DAILY_PROFIT_TARGET) and (len(trades) == 0),
                     "wins": wins,
                     "losses": losses,
                     "total_trades": total,

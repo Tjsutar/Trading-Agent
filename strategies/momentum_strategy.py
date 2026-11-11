@@ -44,6 +44,7 @@ class MomentumStrategy:
         self.daily_trade_count = 0
         self.max_trades_per_day = Config.MAX_TRADES_PER_DAY
         self.daily_profit_target = Config.DAILY_PROFIT_TARGET
+        self.daily_loss_cap = Config.DAILY_LOSS_CAP
         self.had_loss_today = TradeRepository.had_loss_today()
         self.min_adx = Config.MIN_ADX_TREND
         self.be_trigger = Config.FAST_BREAKEVEN_PTS
@@ -191,6 +192,8 @@ class MomentumStrategy:
                         logger.info("⏳ Blackout Period (11:30 - 13:00 IST). Waiting for afternoon liquidity window...")
                     elif daily_realized >= self.daily_profit_target:
                         logger.info(f"🎯 Daily Profit Target Reached! Realized: ₹{daily_realized:,.2f} >= Target: ₹{self.daily_profit_target:,.2f}. Daily target secured, sitting in cash.")
+                    elif daily_realized <= self.daily_loss_cap:
+                        logger.info(f"🛑 Daily Loss Cap Hit! Realized: ₹{daily_realized:,.2f} <= Cap: ₹{self.daily_loss_cap:,.2f}. Capital protected. Sitting in cash.")
                     elif Config.STOP_ON_FIRST_LOSS and self.had_loss_today:
                         logger.info("🛑 Stop-on-1st-Loss active! Capital protected after today's loss. Sitting in cash.")
                     elif self.daily_trade_count >= self.max_trades_per_day:
@@ -432,16 +435,20 @@ class MomentumStrategy:
         )
 
         notifier.notify_trade_exit(symbol, actual_exit, pnl, reason)
+        daily_realized = TradeRepository.get_daily_realized_pnl()
         if pnl < 0:
             self.had_loss_today = True
-            logger.warning(f"🛑 Trade exited with LOSS (-₹{abs(pnl):,.2f}). Stop-on-1st-Loss rule activated. No further trades today.")
+            logger.warning(f"Trade exited with LOSS (-₹{abs(pnl):,.2f}). Current Daily Realized: {'+' if daily_realized>=0 else ''}₹{daily_realized:,.2f}.")
         else:
-            daily_realized = TradeRepository.get_daily_realized_pnl()
-            logger.info(f"🎉 Trade exited with PROFIT (+₹{pnl:,.2f})! Total daily realized: ₹{daily_realized:,.2f} / ₹{self.daily_profit_target:,.2f}.")
-            if daily_realized >= self.daily_profit_target:
-                logger.info(f"🎯 Daily profit target reached (₹{daily_realized:,.2f} >= ₹{self.daily_profit_target:,.2f}). Locking profits for the day.")
-            else:
-                logger.info(f"✅ Next trade permitted! Looking for next crossover signal (max 1 trade at a time).")
+            logger.info(f"🎉 Trade exited with PROFIT (+₹{pnl:,.2f})! Current Daily Realized: {'+' if daily_realized>=0 else ''}₹{daily_realized:,.2f} / ₹{self.daily_profit_target:,.2f}.")
+
+        if daily_realized <= self.daily_loss_cap:
+            logger.warning(f"🛑 Daily Loss Cap Hit! Realized: ₹{daily_realized:,.2f} <= Cap: ₹{self.daily_loss_cap:,.2f}. Trading halted for today.")
+        elif daily_realized >= self.daily_profit_target:
+            logger.info(f"🎯 Daily profit target reached (₹{daily_realized:,.2f} >= ₹{self.daily_profit_target:,.2f}). Locking profits for the day.")
+        else:
+            remaining_loss_buffer = daily_realized - self.daily_loss_cap
+            logger.info(f"✅ Next trade permitted! (Buffer to -₹250 cap: ₹{remaining_loss_buffer:,.2f} | Target: ₹{self.daily_profit_target:,.2f}).")
 
         self.active_position = None
         if self.market_stream and token:
