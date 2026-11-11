@@ -94,15 +94,17 @@ class TradeRepository:
         order_id: str,
         exit_price: float,
         pnl: float,
-        reason: str = "TARGET_OR_SL"
+        reason: str = "TARGET_OR_SL",
+        commission: float = 0.0
     ) -> Optional[Trade]:
-        """Close an active trade and record exit price and PnL."""
+        """Close an active trade and record exit price, Net PnL, and total charges."""
         with get_db_session() as session:
             trade = session.query(Trade).filter(Trade.order_id == order_id).first()
             if trade:
                 trade.exit_price = exit_price
                 trade.exit_time = datetime.now(timezone.utc)
                 trade.pnl = pnl
+                trade.commission = commission
                 trade.status = "CLOSED"
                 trade.updated_at = datetime.now(timezone.utc)
                 session.flush()
@@ -112,8 +114,8 @@ class TradeRepository:
                 TradeRepository.record_audit(
                     event_type="TRADE_CLOSED",
                     severity="INFO",
-                    message=f"Trade {order_id} ({trade.symbol}) closed at {exit_price} with PnL {pnl:.2f}. Reason: {reason}",
-                    context={"order_id": order_id, "exit_price": exit_price, "pnl": pnl, "reason": reason}
+                    message=f"Trade {order_id} ({trade.symbol}) closed at {exit_price} with Net PnL {pnl:.2f} (Charges: ₹{commission:.2f}). Reason: {reason}",
+                    context={"order_id": order_id, "exit_price": exit_price, "pnl": pnl, "commission": commission, "reason": reason}
                 )
                 return trade
             return None
@@ -182,6 +184,32 @@ class TradeRepository:
                 func.date(Trade.exit_time) == target
             ).scalar()
             return float(total or 0.0)
+
+    @staticmethod
+    def get_daily_charges(target_date: Optional[date] = None) -> float:
+        """Calculate total statutory & brokerage charges for a given date."""
+        target = target_date or datetime.now(timezone.utc).date()
+        with get_db_session() as session:
+            total = session.query(func.sum(Trade.commission)).filter(
+                Trade.status == "CLOSED",
+                func.date(Trade.exit_time) == target
+            ).scalar()
+            return float(total or 0.0)
+
+    @staticmethod
+    def get_daily_gross_pnl(target_date: Optional[date] = None) -> float:
+        """Calculate total gross PnL (before trade charges) for a given date."""
+        target = target_date or datetime.now(timezone.utc).date()
+        with get_db_session() as session:
+            trades = session.query(Trade).filter(
+                Trade.status == "CLOSED",
+                func.date(Trade.exit_time) == target
+            ).all()
+            total_gross = sum(
+                round((t.exit_price - t.entry_price) * t.lot_size, 2)
+                for t in trades if t.exit_price and t.entry_price
+            )
+            return float(total_gross)
 
     @staticmethod
     def had_loss_today(target_date: Optional[date] = None) -> bool:

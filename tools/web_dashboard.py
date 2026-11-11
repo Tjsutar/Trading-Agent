@@ -259,9 +259,9 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 
   <div class="grid-4">
     <div class="card">
-      <div class="card-title">Daily Realized P&L</div>
+      <div class="card-title">Daily Net Realized P&L</div>
       <div class="card-value" id="daily-pnl" style="color: var(--green);">+₹0.00</div>
-      <div class="card-sub" id="pnl-sub">Target: ₹5,000.00 | Tier: ₹15k</div>
+      <div class="card-sub" id="pnl-sub">Gross: ₹0.00 | Charges: ₹0.00</div>
     </div>
     <div class="card">
       <div class="card-title">Today's Win Rate</div>
@@ -291,19 +291,20 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         <tr>
           <th>Entry Time (IST)</th>
           <th>Exit Time (IST)</th>
-          <th>Order ID</th>
           <th>Contract Symbol</th>
           <th>Side</th>
           <th>Qty</th>
           <th>Entry Price</th>
           <th>Exit Price</th>
-          <th>Return (%)</th>
+          <th>Gross P&L (₹)</th>
+          <th>Charges (₹)</th>
           <th>Net P&L (₹)</th>
+          <th>Return (%)</th>
           <th>Outcome</th>
         </tr>
       </thead>
       <tbody id="closed-trades-tbody">
-        <tr><td colspan="11" style="text-align: center; color: var(--text-muted); padding: 24px;">No closed trades today yet.</td></tr>
+        <tr><td colspan="12" style="text-align: center; color: var(--text-muted); padding: 24px;">No closed trades today yet.</td></tr>
       </tbody>
     </table>
   </div>
@@ -379,19 +380,21 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         const isPos = data.daily_pnl >= 0;
         pnlEl.textContent = (isPos ? '+₹' : '-₹') + Math.abs(data.daily_pnl).toFixed(2);
         pnlEl.style.color = isPos ? 'var(--green)' : 'var(--red)';
-        const targetVal = data.daily_profit_target || 5000;
-        const targetPct = Math.min(100, (data.daily_pnl / targetVal) * 100).toFixed(1);
-        document.getElementById('pnl-sub').textContent = `Target: ₹${targetVal.toFixed(2)} (${targetPct}% achieved)`;
+        const grossVal = data.daily_gross_pnl || 0;
+        const grossSign = grossVal >= 0 ? '+₹' : '-₹';
+        const chgVal = (data.daily_charges || 0).toFixed(2);
+        document.getElementById('pnl-sub').textContent = `Gross: ${grossSign}${Math.abs(grossVal).toFixed(2)} | Charges: -₹${chgVal}`;
 
         // Update Profit Target & Loss Cap Subtitle
         const targetSubEl = document.getElementById('target-profit-sub');
         if (targetSubEl) {
+          const targetVal = data.daily_profit_target || 5000;
           const lossCap = data.daily_loss_cap || -250;
           if (data.daily_pnl >= targetVal) {
             targetSubEl.innerHTML = '🎉 Target Reached! Locking gains 🔒';
             targetSubEl.style.color = 'var(--green)';
           } else if (data.daily_pnl <= lossCap) {
-            targetSubEl.innerHTML = `🛑 Cap Hit (≤ ₹${lossCap}): Sitting in Cash`;
+            targetSubEl.innerHTML = `🛑 Cap Hit (≤ -₹250): Sitting in Cash`;
             targetSubEl.style.color = 'var(--red)';
           } else {
             const buffer = (data.daily_pnl - lossCap).toFixed(2);
@@ -417,24 +420,27 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             const isWin = t.pnl >= 0;
             const pnlColor = isWin ? 'var(--green)' : 'var(--red)';
             const sign = isWin ? '+' : '';
+            const grossSign = (t.gross_pnl || 0) >= 0 ? '+' : '';
+            const grossColor = (t.gross_pnl || 0) >= 0 ? 'var(--green)' : 'var(--red)';
             return `
               <tr>
                 <td style="color:var(--text); font-size:12px; font-family:'JetBrains Mono'; font-weight:600;">${t.entry_time}</td>
                 <td style="color:var(--text-muted); font-size:12px; font-family:'JetBrains Mono'; font-weight:600;">${t.exit_time}</td>
-                <td style="font-family:'JetBrains Mono'; font-size:11px; color:var(--text-muted);">${t.order_id}</td>
                 <td><strong style="color:var(--text);">${t.symbol}</strong></td>
                 <td><span class="tag tag-${t.side.toLowerCase()}">${t.side}</span></td>
                 <td style="font-family:'JetBrains Mono'">${t.qty}</td>
                 <td style="font-family:'JetBrains Mono'">₹${(t.entry || 0).toFixed(2)}</td>
                 <td style="font-family:'JetBrains Mono'">₹${(t.exit || 0).toFixed(2)}</td>
-                <td style="font-family:'JetBrains Mono'; color:${pnlColor}; font-weight:600;">${sign}${t.roi_pct}%</td>
+                <td style="font-family:'JetBrains Mono'; color:${grossColor}; font-weight:600;">${grossSign}₹${(t.gross_pnl || 0).toFixed(2)}</td>
+                <td style="font-family:'JetBrains Mono'; color:var(--amber); font-weight:600;">-₹${(t.charges || 0).toFixed(2)}</td>
                 <td style="font-family:'JetBrains Mono'; font-weight:700; color:${pnlColor}; font-size:14px;">${sign}₹${t.pnl.toFixed(2)}</td>
+                <td style="font-family:'JetBrains Mono'; color:${pnlColor}; font-weight:600;">${sign}${t.roi_pct}%</td>
                 <td><span class="${isWin ? 'badge-win' : 'badge-loss'}">${isWin ? '🟢 WIN' : '🔴 LOSS'}</span></td>
               </tr>
             `;
           }).join('');
         } else {
-          closedTbody.innerHTML = '<tr><td colspan="11" style="text-align: center; color: var(--text-muted); padding: 24px;">No closed trades today yet.</td></tr>';
+          closedTbody.innerHTML = '<tr><td colspan="12" style="text-align: center; color: var(--text-muted); padding: 24px;">No closed trades today yet.</td></tr>';
         }
 
         // 5. Render Active Positions
@@ -524,6 +530,8 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
             init_db()
             with get_db_session() as session:
                 daily_pnl = TradeRepository.get_daily_realized_pnl()
+                daily_gross = TradeRepository.get_daily_gross_pnl()
+                daily_charges = TradeRepository.get_daily_charges()
                 trades = session.query(Trade).filter(Trade.status == "OPEN").all()
                 closed_trades = session.query(Trade).filter(Trade.status == "CLOSED").order_by(Trade.id.desc()).limit(20).all()
                 signals = session.query(Signal).order_by(Signal.id.desc()).limit(10).all()
@@ -537,6 +545,8 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
                 had_loss = TradeRepository.had_loss_today()
                 payload = {
                     "daily_pnl": daily_pnl,
+                    "daily_gross_pnl": daily_gross,
+                    "daily_charges": daily_charges,
                     "daily_profit_target": Config.DAILY_PROFIT_TARGET,
                     "daily_loss_cap": Config.DAILY_LOSS_CAP,
                     "had_loss_today": had_loss,
@@ -568,6 +578,8 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
                             "qty": int(t.lot_size),
                             "entry": t.entry_price,
                             "exit": t.exit_price,
+                            "gross_pnl": round((t.exit_price - t.entry_price) * t.lot_size, 2) if (t.entry_price and t.exit_price) else 0.0,
+                            "charges": round(t.commission, 2) if t.commission else 0.0,
                             "pnl": round(t.pnl, 2) if t.pnl is not None else 0.0,
                             "entry_time": to_ist_display(t.entry_time),
                             "exit_time": to_ist_display(t.exit_time),

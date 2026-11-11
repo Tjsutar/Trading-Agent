@@ -24,6 +24,7 @@ from core.data_fetcher import DataFetcher
 from db.repository import TradeRepository
 from utils.logger import get_logger
 from utils.notifier import notifier
+from utils.charges_calculator import calculate_option_charges
 
 logger = get_logger("MomentumStrategy")
 
@@ -411,9 +412,15 @@ class MomentumStrategy:
         order_id = self.active_position.get('order_id', f"POS-{symbol}")
 
         actual_exit = exit_price or self.get_option_ltp(symbol, token) or entry_price
-        pnl = (actual_exit - entry_price) * qty - 40.0  # Minus ₹40 brokerage
+        charges_data = calculate_option_charges(entry_price, actual_exit, qty)
+        gross_pnl = charges_data['gross_pnl']
+        commission = charges_data['total_charges']
+        net_pnl = charges_data['net_pnl']
 
-        logger.info(f"Exit: Closed {symbol} @ ₹{actual_exit:.1f} | PnL: {'+' if pnl>=0 else ''}₹{pnl:,.2f} | Reason: {reason}")
+        logger.info(
+            f"Exit: Closed {symbol} @ ₹{actual_exit:.2f} | Gross: {'+' if gross_pnl>=0 else ''}₹{gross_pnl:,.2f} | "
+            f"Charges: -₹{commission:,.2f} | Net PnL: {'+' if net_pnl>=0 else ''}₹{net_pnl:,.2f} | Reason: {reason}"
+        )
 
         if not self.dry_run:
             try:
@@ -426,21 +433,22 @@ class MomentumStrategy:
             except Exception as e:
                 logger.error(f"Exit order dispatch failed: {e}")
 
-        # Update Database Trade Record
+        # Update Database Trade Record with Net PnL and full trade charges
         TradeRepository.close_trade(
             order_id=order_id,
             exit_price=actual_exit,
-            pnl=pnl,
-            reason=reason
+            pnl=net_pnl,
+            reason=reason,
+            commission=commission
         )
 
-        notifier.notify_trade_exit(symbol, actual_exit, pnl, reason)
+        notifier.notify_trade_exit(symbol, actual_exit, net_pnl, reason)
         daily_realized = TradeRepository.get_daily_realized_pnl()
-        if pnl < 0:
+        if net_pnl < 0:
             self.had_loss_today = True
-            logger.warning(f"Trade exited with LOSS (-₹{abs(pnl):,.2f}). Current Daily Realized: {'+' if daily_realized>=0 else ''}₹{daily_realized:,.2f}.")
+            logger.warning(f"Trade exited with LOSS (-₹{abs(net_pnl):,.2f}). Current Daily Realized: {'+' if daily_realized>=0 else ''}₹{daily_realized:,.2f}.")
         else:
-            logger.info(f"🎉 Trade exited with PROFIT (+₹{pnl:,.2f})! Current Daily Realized: {'+' if daily_realized>=0 else ''}₹{daily_realized:,.2f} / ₹{self.daily_profit_target:,.2f}.")
+            logger.info(f"🎉 Trade exited with PROFIT (+₹{net_pnl:,.2f})! Current Daily Realized: {'+' if daily_realized>=0 else ''}₹{daily_realized:,.2f} / ₹{self.daily_profit_target:,.2f}.")
 
         if daily_realized <= self.daily_loss_cap:
             logger.warning(f"🛑 Daily Loss Cap Hit! Realized: ₹{daily_realized:,.2f} <= Cap: ₹{self.daily_loss_cap:,.2f}. Trading halted for today.")
