@@ -21,7 +21,8 @@ class Config:
     BREAKEVEN_LOCK_PTS = float(os.getenv("BREAKEVEN_LOCK_PTS", "2.0"))
     TSL_DISTANCE = float(os.getenv("TSL_DISTANCE", "8.0"))  # 8 pts trailing distance
     STOP_ON_FIRST_LOSS = os.getenv("STOP_ON_FIRST_LOSS", "true").lower() == "true"
-    MAX_TRADES_PER_DAY = int(os.getenv("MAX_TRADES_PER_DAY", "1"))
+    MAX_TRADES_PER_DAY = int(os.getenv("MAX_TRADES_PER_DAY", "10"))
+    DAILY_PROFIT_TARGET = float(os.getenv("DAILY_PROFIT_TARGET", "5000.0"))
     HARD_DAILY_STOP = float(os.getenv("HARD_DAILY_STOP", "-700.0"))
     SL_PTS = float(os.getenv("SL_PTS", "16.0"))
     TP_PTS = float(os.getenv("TP_PTS", "36.0"))

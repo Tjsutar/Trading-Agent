@@ -184,6 +184,18 @@ class TradeRepository:
             return float(total or 0.0)
 
     @staticmethod
+    def had_loss_today(target_date: Optional[date] = None) -> bool:
+        """Check if any closed trade today resulted in a loss."""
+        target = target_date or datetime.now(timezone.utc).date()
+        with get_db_session() as session:
+            count = session.query(func.count(Trade.id)).filter(
+                Trade.status == "CLOSED",
+                func.date(Trade.exit_time) == target,
+                Trade.pnl < 0
+            ).scalar()
+            return (count or 0) > 0
+
+    @staticmethod
     def record_audit(
         event_type: str,
         severity: str,

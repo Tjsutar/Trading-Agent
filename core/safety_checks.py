@@ -168,6 +168,17 @@ class SafetyGatekeeper:
             return False
         return True
 
+    def check_daily_profit_target(self, target_profit: float = 5000.0) -> bool:
+        """
+        Check if cumulative daily realized P&L has hit or exceeded the target profit cap.
+        Returns True if target profit is reached (trading should pause/halt), False otherwise.
+        """
+        daily_realized = TradeRepository.get_daily_realized_pnl()
+        if daily_realized >= target_profit:
+            logger.info(f"🎯 Daily Profit Target Reached! Realized: ₹{daily_realized:,.2f} >= Target: ₹{target_profit:,.2f}")
+            return True
+        return False
+
     def validate_risk_reward(self, entry: float, stop_loss: float, take_profit: float, min_rr: float = 2.0) -> bool:
         """
         FR-MR-002: Risk-Reward Filter.

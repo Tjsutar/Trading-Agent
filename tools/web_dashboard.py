@@ -261,7 +261,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     <div class="card">
       <div class="card-title">Daily Realized P&L</div>
       <div class="card-value" id="daily-pnl" style="color: var(--green);">+₹0.00</div>
-      <div class="card-sub" id="pnl-sub">Virtual Capital: ₹15,000.00</div>
+      <div class="card-sub" id="pnl-sub">Target: ₹5,000.00 | Tier: ₹15k</div>
     </div>
     <div class="card">
       <div class="card-title">Today's Win Rate</div>
@@ -271,12 +271,12 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     <div class="card">
       <div class="card-title">Active Positions</div>
       <div class="card-value" id="active-positions-count">0 Open</div>
-      <div class="card-sub">Dynamic TSL Monitored</div>
+      <div class="card-sub">Max 1 Active at a Time 🛡️</div>
     </div>
     <div class="card">
-      <div class="card-title">Safety & Loss Cap</div>
-      <div class="card-value" style="color: var(--amber);">-₹700.00</div>
-      <div class="card-sub">Stop-on-1st-Loss Active 🛡️</div>
+      <div class="card-title">Daily Profit Target</div>
+      <div class="card-value" id="target-profit" style="color: var(--green);">₹5,000.00</div>
+      <div class="card-sub" id="target-profit-sub" style="color: var(--green);">Next Trade Allowed on Win 🎯</div>
     </div>
   </div>
 
@@ -379,6 +379,24 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         const isPos = data.daily_pnl >= 0;
         pnlEl.textContent = (isPos ? '+₹' : '-₹') + Math.abs(data.daily_pnl).toFixed(2);
         pnlEl.style.color = isPos ? 'var(--green)' : 'var(--red)';
+        const targetVal = data.daily_profit_target || 5000;
+        const targetPct = Math.min(100, (data.daily_pnl / targetVal) * 100).toFixed(1);
+        document.getElementById('pnl-sub').textContent = `Target: ₹${targetVal.toFixed(2)} (${targetPct}% achieved)`;
+
+        // Update Profit Target Subtitle
+        const targetSubEl = document.getElementById('target-profit-sub');
+        if (targetSubEl) {
+          if (data.daily_pnl >= targetVal) {
+            targetSubEl.innerHTML = '🎉 Target Reached! Locking gains 🔒';
+            targetSubEl.style.color = 'var(--green)';
+          } else if (data.had_loss_today) {
+            targetSubEl.innerHTML = '🛑 Loss Taken: Capital Protected';
+            targetSubEl.style.color = 'var(--red)';
+          } else {
+            targetSubEl.innerHTML = '✅ Next Trade Allowed on Win 🎯';
+            targetSubEl.style.color = 'var(--green)';
+          }
+        }
 
         // 2. Update Win Rate
         const winEl = document.getElementById('win-rate');
@@ -514,8 +532,12 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
                 total = len(closed_trades)
                 win_rate = round((wins / total * 100), 1) if total > 0 else 0.0
 
+                had_loss = TradeRepository.had_loss_today()
                 payload = {
                     "daily_pnl": daily_pnl,
+                    "daily_profit_target": Config.DAILY_PROFIT_TARGET,
+                    "had_loss_today": had_loss,
+                    "next_trade_allowed": (not had_loss) and (daily_pnl < Config.DAILY_PROFIT_TARGET) and (len(trades) == 0),
                     "wins": wins,
                     "losses": losses,
                     "total_trades": total,
