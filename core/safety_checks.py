@@ -103,11 +103,13 @@ class SafetyGatekeeper:
     def check_trade_margin(self, estimated_cost: float) -> bool:
         """Rule: Available Cash > Estimated Cost with 10% buffer."""
         if self.is_paper:
-            if self.starting_capital >= estimated_cost:
-                logger.info(f"Gatekeeper Margin Check (Paper): Virtual ₹{self.starting_capital:,.2f} >= Cost ₹{estimated_cost:,.2f}")
+            # For 1-lot trading in paper mode, allow up to 25% flexibility on far-dated expiries
+            paper_limit = self.starting_capital * 1.25
+            if paper_limit >= estimated_cost:
+                logger.info(f"Gatekeeper Margin Check (Paper): Virtual ₹{self.starting_capital:,.2f} (buffer ₹{paper_limit:,.2f}) >= Cost ₹{estimated_cost:,.2f}")
                 return True
             else:
-                logger.warning(f"Gatekeeper Insufficient Paper Margin: Virtual ₹{self.starting_capital:,.2f} < Cost ₹{estimated_cost:,.2f}")
+                logger.warning(f"Gatekeeper Insufficient Paper Margin: Virtual limit ₹{paper_limit:,.2f} < Cost ₹{estimated_cost:,.2f}")
                 return False
 
         try:

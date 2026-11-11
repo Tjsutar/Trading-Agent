@@ -7,7 +7,7 @@ class DataFetcher:
     def __init__(self, api):
         self.api = api
 
-    def fetch_latest_candles(self, symbol_token, interval="FIVE_MINUTE", days=1, exchange="NSE"):
+    def fetch_latest_candles(self, symbol_token, interval="FIVE_MINUTE", days=4, exchange="NSE"):
         """
         Fetches historic candle data and returns a DataFrame.
         """

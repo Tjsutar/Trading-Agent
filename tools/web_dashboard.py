@@ -17,7 +17,20 @@ import threading
 from pathlib import Path
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
+
+IST = timezone(timedelta(hours=5, minutes=30))
+
+def to_ist_display(dt):
+    if not dt:
+        return "--"
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    dt_ist = dt.astimezone(IST)
+    now_ist = datetime.now(IST)
+    if dt_ist.date() == now_ist.date():
+        return dt_ist.strftime("%H:%M:%S")
+    return dt_ist.strftime("%d-%b %H:%M:%S")
 
 # Add project root to sys.path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -276,7 +289,8 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     <table>
       <thead>
         <tr>
-          <th>Execution Time</th>
+          <th>Entry Time (IST)</th>
+          <th>Exit Time (IST)</th>
           <th>Order ID</th>
           <th>Contract Symbol</th>
           <th>Side</th>
@@ -289,7 +303,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         </tr>
       </thead>
       <tbody id="closed-trades-tbody">
-        <tr><td colspan="10" style="text-align: center; color: var(--text-muted); padding: 24px;">No closed trades today yet.</td></tr>
+        <tr><td colspan="11" style="text-align: center; color: var(--text-muted); padding: 24px;">No closed trades today yet.</td></tr>
       </tbody>
     </table>
   </div>
@@ -303,6 +317,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     <table>
       <thead>
         <tr>
+          <th>Entry Time (IST)</th>
           <th>Order ID</th>
           <th>Symbol</th>
           <th>Side</th>
@@ -314,7 +329,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         </tr>
       </thead>
       <tbody id="positions-tbody">
-        <tr><td colspan="8" style="text-align: center; color: var(--text-muted); padding: 24px;">No open positions currently active.</td></tr>
+        <tr><td colspan="9" style="text-align: center; color: var(--text-muted); padding: 24px;">No open positions currently active.</td></tr>
       </tbody>
     </table>
   </div>
@@ -384,7 +399,8 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             const sign = isWin ? '+' : '';
             return `
               <tr>
-                <td style="color:var(--text-muted); font-size:12px; font-family:'JetBrains Mono'">${t.entry_time} ➔ ${t.exit_time}</td>
+                <td style="color:var(--text); font-size:12px; font-family:'JetBrains Mono'; font-weight:600;">${t.entry_time}</td>
+                <td style="color:var(--text-muted); font-size:12px; font-family:'JetBrains Mono'; font-weight:600;">${t.exit_time}</td>
                 <td style="font-family:'JetBrains Mono'; font-size:11px; color:var(--text-muted);">${t.order_id}</td>
                 <td><strong style="color:var(--text);">${t.symbol}</strong></td>
                 <td><span class="tag tag-${t.side.toLowerCase()}">${t.side}</span></td>
@@ -398,7 +414,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             `;
           }).join('');
         } else {
-          closedTbody.innerHTML = '<tr><td colspan="10" style="text-align: center; color: var(--text-muted); padding: 24px;">No closed trades today yet.</td></tr>';
+          closedTbody.innerHTML = '<tr><td colspan="11" style="text-align: center; color: var(--text-muted); padding: 24px;">No closed trades today yet.</td></tr>';
         }
 
         // 5. Render Active Positions
@@ -407,6 +423,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
           document.getElementById('open-positions-subtitle').textContent = 'Live Market Active Trade';
           posTbody.innerHTML = data.open_trades.map(p => `
             <tr>
+              <td style="color:var(--text); font-size:12px; font-family:'JetBrains Mono'; font-weight:600;">${p.entry_time || '--'}</td>
               <td style="font-family:'JetBrains Mono'; font-size:11px;">${p.order_id}</td>
               <td><strong>${p.symbol}</strong></td>
               <td><span class="tag tag-${p.side.toLowerCase()}">${p.side}</span></td>
@@ -419,7 +436,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
           `).join('');
         } else {
           document.getElementById('open-positions-subtitle').textContent = 'Zero Open Risk (Sitting in Cash)';
-          posTbody.innerHTML = '<tr><td colspan="8" style="text-align: center; color: var(--text-muted); padding: 24px;">No open positions currently active. Capital 100% protected.</td></tr>';
+          posTbody.innerHTML = '<tr><td colspan="9" style="text-align: center; color: var(--text-muted); padding: 24px;">No open positions currently active. Capital 100% protected.</td></tr>';
         }
 
         // 6. Update Signals
@@ -512,7 +529,8 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
                             "entry": t.entry_price,
                             "sl": t.current_stop_loss,
                             "be": t.breakeven_activated,
-                            "tsl": t.trailing_sl_activated
+                            "tsl": t.trailing_sl_activated,
+                            "entry_time": to_ist_display(t.entry_time)
                         }
                         for t in trades
                     ],
@@ -526,8 +544,8 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
                             "entry": t.entry_price,
                             "exit": t.exit_price,
                             "pnl": round(t.pnl, 2) if t.pnl is not None else 0.0,
-                            "entry_time": t.entry_time.strftime("%H:%M:%S") if t.entry_time else "--",
-                            "exit_time": t.exit_time.strftime("%H:%M:%S") if t.exit_time else "--",
+                            "entry_time": to_ist_display(t.entry_time),
+                            "exit_time": to_ist_display(t.exit_time),
                             "roi_pct": round(((t.exit_price - t.entry_price) / t.entry_price) * 100, 1) if (t.entry_price and t.exit_price) else 0.0
                         }
                         for t in closed_trades
@@ -546,7 +564,7 @@ class DashboardRequestHandler(BaseHTTPRequestHandler):
                     ],
                     "audits": [
                         {
-                            "time": a.created_at.strftime("%H:%M:%S") if a.created_at else "Now",
+                            "time": to_ist_display(a.created_at),
                             "severity": a.severity,
                             "type": a.event_type,
                             "message": a.message

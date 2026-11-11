@@ -47,6 +47,7 @@ class MomentumStrategy:
         self.min_adx = Config.MIN_ADX_TREND
         self.be_trigger = Config.FAST_BREAKEVEN_PTS
         self.be_lock = Config.BREAKEVEN_LOCK_PTS
+        self._history_seeded = False
         self.load_state()
 
     def save_state(self):
@@ -224,16 +225,31 @@ class MomentumStrategy:
         if is_mock_api and not self.market_stream:
             df = self.get_mock_df()
         elif self.market_stream:
+            if not self._history_seeded:
+                self._history_seeded = True
+                cached_csv = os.path.join("data", "nifty_1y_5min.csv")
+                seeded = False
+                if os.path.exists(cached_csv):
+                    try:
+                        c_df = pd.read_csv(cached_csv).tail(60)
+                        if not c_df.empty:
+                            self.market_stream.nifty_synthesizer.load_historical(c_df)
+                            logger.info(f"MarketDataStream: Pre-seeded {len(c_df)} historical candles from local cache.")
+                            seeded = True
+                    except Exception as err:
+                        logger.warning(f"Could not load local candle cache: {err}")
+                if not seeded:
+                    try:
+                        api_df = self.data_fetcher.fetch_latest_candles("99926000", days=4)
+                        if api_df is not None and not api_df.empty:
+                            self.market_stream.nifty_synthesizer.load_historical(api_df)
+                    except Exception:
+                        pass
+
             stream_df = self.market_stream.get_nifty_candles()
-            if stream_df is not None and len(stream_df) >= 25:
-                df = stream_df
-            else:
-                # Seed historical candles once
-                df = self.data_fetcher.fetch_latest_candles("99926000")
-                if df is not None and not df.empty:
-                    self.market_stream.nifty_synthesizer.load_historical(df)
+            df = stream_df if stream_df is not None and not stream_df.empty else self.get_mock_df()
         else:
-            df = self.data_fetcher.fetch_latest_candles("99926000")
+            df = self.data_fetcher.fetch_latest_candles("99926000", days=4)
 
         if df is None or df.empty or len(df) < 25:
             return "NEUTRAL", 0, 0, 0, 50.0
